@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <!-- Speech screen: 16 kHz mic capture for Whisper-on-NPU. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <uses-feature
+        android:name="android.hardware.vulkan.compute"
+        android:required="false" />
+
+    <application
+        android:name=".NpuLabApplication"
+        android:label="NPU Lab"
+        android:theme="@style/Theme.NpuLab"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:allowBackup="false"
+        android:supportsRtl="true"
+        android:requestLegacyExternalStorage="false">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|uiMode"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.NpuLab">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Vendor native libraries. Since Android 12 (targetSdk 31+) the
+             linker only exposes /vendor libs that the app declares here.
+             libcdsprpc.so is the FastRPC user driver for the compute DSP —
+             libQnnHtpV81Stub.so links against it, and without this entry
+             dlopen dies with: 'library "libcdsprpc.so" not found in
+             namespace clns-N' → deviceCreate rc=14001. Same declarations as
+             Qualcomm's ai-hub-apps ChatApp. libOpenCL.so is the equivalent
+             for the Adreno GPU backend (libQnnGpu.so). -->
+        <uses-native-library
+            android:name="libcdsprpc.so"
+            android:required="false" />
+        <uses-native-library
+            android:name="libadsprpc.so"
+            android:required="false" />
+        <uses-native-library
+            android:name="libOpenCL.so"
+            android:required="false" />
+
+    </application>
+
+</manifest>

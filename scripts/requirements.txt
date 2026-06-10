@@ -1,0 +1,16 @@
+# Run inside a venv: python3 -m venv .venv && source .venv/bin/activate
+# Then: pip install -r scripts/requirements.txt
+
+# Public-mirror path only needs the Python stdlib + nothing else.
+# AI Hub path:
+qai-hub
+qai-hub-models
+
+# PC benchmark (separate concern, optional):
+# torch                        — install with: pip install torch --index-url https://download.pytorch.org/whl/cu124
+# diffusers
+# transformers
+# accelerate
+# openai-whisper
+# realesrgan
+# timm

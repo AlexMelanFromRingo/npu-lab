@@ -1,0 +1,33 @@
+# ── models & generated artifacts ───────────────────────────────
+models/
+build/
+*.apk
+
+# ── Qualcomm SDK redistributables (copy via scripts/copy-qnn-libs.sh) ──
+android-app/app/src/main/jniLibs/arm64-v8a/*.so
+
+# ── Android / Gradle ───────────────────────────────────────────
+android-app/.gradle/
+android-app/.kotlin/
+android-app/local.properties
+android-app/release.keystore
+android-app/app/build/
+android-app/app/.cxx/
+android-app/build/
+captures/
+.externalNativeBuild/
+
+# ── Python ─────────────────────────────────────────────────────
+.venv/
+.venv-qairt/
+__pycache__/
+*.pyc
+
+# ── host tools ─────────────────────────────────────────────────
+tools/host_introspect/build/
+
+# ── IDE / OS noise ─────────────────────────────────────────────
+.idea/
+.vscode/
+*.iml
+.DS_Store

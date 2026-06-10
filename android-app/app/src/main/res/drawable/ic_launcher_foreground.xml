@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- Hexagonal "neural mesh" mark — primary blue hex with two amber accents -->
+    <path
+        android:fillColor="#6FA8FF"
+        android:pathData="M54,30 L74,42 L74,66 L54,78 L34,66 L34,42 Z"
+        android:strokeColor="#22417A"
+        android:strokeWidth="2"/>
+    <path android:fillColor="#FFB86B" android:pathData="M54,42 m-3,0 a3,3 0 1,0 6,0 a3,3 0 1,0 -6,0" />
+    <path android:fillColor="#4DD0C0" android:pathData="M40,54 m-3,0 a3,3 0 1,0 6,0 a3,3 0 1,0 -6,0" />
+    <path android:fillColor="#4DD0C0" android:pathData="M68,54 m-3,0 a3,3 0 1,0 6,0 a3,3 0 1,0 -6,0" />
+    <path android:fillColor="#FFB86B" android:pathData="M54,66 m-3,0 a3,3 0 1,0 6,0 a3,3 0 1,0 -6,0" />
+    <!-- connecting lines -->
+    <path android:strokeColor="#6FA8FF" android:strokeWidth="1.5"
+        android:pathData="M54,42 L40,54 M54,42 L68,54 M40,54 L54,66 M68,54 L54,66 M40,54 L68,54" />
+</vector>

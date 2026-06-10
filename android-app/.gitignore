@@ -1,0 +1,16 @@
+*.iml
+.gradle
+/local.properties
+/.idea
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+app/build/
+app/.cxx/
+release.keystore
+*.jks
+**/jniLibs/arm64-v8a/libQnn*.so
+**/jniLibs/arm64-v8a/libcdsprpc.so
