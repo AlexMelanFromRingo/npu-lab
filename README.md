@@ -30,15 +30,21 @@ Built as a hands-on lab to compare a phone NPU against a desktop GPU
 
 - **`android-app/`** — Kotlin 2.0 + Jetpack Compose + Material 3
   - **Generate** — Stable Diffusion 1.5 (w8a16): CLIP byte-level BPE tokenizer,
-    DPM-Solver++ 2M (leading schedule, formulas verified against diffusers),
-    UNet ×2 per step with CFG, VAE — all marshalling in Kotlin, inference on HTP.
+    selectable sampler — EulerDiscrete (the scheduler the AI Hub binaries were
+    calibrated against, default) or DPM-Solver++ 2M (verified against
+    diffusers) — UNet ×2 per step with CFG, VAE; marshalling in Kotlin,
+    inference on HTP.
   - **Speech** — Whisper on the NPU: log-mel frontend (1:1 port of HF
     `WhisperFeatureExtractor`, golden-tested), fp16 KV-cache ping-pong decoder,
     forced `[SOT, lang, transcribe, notimestamps]` prompt, per-chunk language
     auto-detect, recordings up to 2 min (30 s windows). Model flavor selector:
     Base / Small / Large-v3-Turbo (80- and 128-mel, v2/v3 vocab handled).
-  - **Benchmark** — catalog models + any custom `.bin` dropped into
-    `models/custom/`, warmup + median/p95.
+  - **Benchmark** — 37-model catalog (SD, Whisper ×4, and a 31-model zoo of
+    classification / detection / depth / segmentation / super-resolution
+    networks as device-agnostic float DLCs) + any custom `.bin`/`.dlc` dropped
+    into `models/custom/`, warmup + median/p95. **DLC models run on HTP, GPU
+    and CPU** — composed and prepared on device per backend, so the three-way
+    comparison is real.
   - **Device** — SoC info plus a one-tap **NPU self-test**: every deviceCreate
     flavor × context load, platform info as QNN sees it, full internal log —
     copyable, no adb required.
@@ -97,7 +103,7 @@ Constraints (static shapes, HTP op coverage, SoC binding):
 ## Tests
 
 ```bash
-cd android-app && ./gradlew :app:testDebugUnitTest   # 42 JVM tests
+cd android-app && ./gradlew :app:testDebugUnitTest   # 46 JVM tests
 scripts/run-host-introspect-test.sh                  # C++ vs real binaries
 ```
 
@@ -122,7 +128,9 @@ Documented in detail in [ARCHITECTURE.md](ARCHITECTURE.md) and
    not ARM!) with `useLegacyPackaging=true` and a `keepDebugSymbols` guard so
    AGP doesn't strip them. Asset-extraction schemes break on compressed assets.
 4. **Context binaries are backend- and SoC-specific** — an HTP binary will not
-   load on the QNN GPU/CPU backends, and a V79 binary won't run on V81.
+   load on the QNN GPU/CPU backends, and a V79 binary won't run on V81. The
+   cross-backend format is **DLC** (composed + prepared on device per backend
+   via `systemDlcComposeGraphs`) — that's what the model zoo uses.
 5. **AI Hub SD 1.5 quirks**: the VAE divides by 0.18215 *inside* the graph
    (don't pre-divide), and the UNet's quantized `timestep` grid tops out at
    ≈968 (use the *leading* schedule, never linspace's t=999).
@@ -133,9 +141,8 @@ Documented in detail in [ARCHITECTURE.md](ARCHITECTURE.md) and
 
 - Verified on a real Galaxy S26 Ultra: SD 1.5 generation, Whisper STT (4
   languages incl. auto-detect), benchmarks, custom-model loading.
-- QNN GPU/CPU backends can't deserialize HTP context binaries (by design);
-  a TFLite/ONNX path for on-device three-way comparison is a recorded
-  alternative, not implemented.
+- QNN GPU/CPU backends can't deserialize HTP context binaries (by design) —
+  use the DLC zoo models for three-way HTP/GPU/CPU benchmarks.
 - Whisper streaming (real-time) and SD img2img are not implemented.
 
 ## Docs in Russian

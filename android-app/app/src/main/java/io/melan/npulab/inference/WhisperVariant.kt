@@ -26,6 +26,13 @@ data class WhisperVariant(
     fun requiredFiles(): List<String> = listOf(encoderPath, decoderPath, vocabPath)
 
     companion object {
+        val TINY = WhisperVariant(
+            kind = ModelKind.WHISPER_TINY,
+            dirName = "whisper_tiny",
+            displayName = "Tiny",
+            transcribeId = 50359, noTimestampsId = 50363,
+            langFirst = 50259, langLast = 50357,
+        )
         val BASE = WhisperVariant(
             kind = ModelKind.WHISPER_BASE,
             dirName = "whisper",
@@ -48,6 +55,6 @@ data class WhisperVariant(
             transcribeId = 50360, noTimestampsId = 50364,
             langFirst = 50259, langLast = 50358,
         )
-        val ALL = listOf(BASE, SMALL, LARGE_V3_TURBO)
+        val ALL = listOf(TINY, BASE, SMALL, LARGE_V3_TURBO)
     }
 }

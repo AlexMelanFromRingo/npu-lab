@@ -47,7 +47,15 @@ Key properties that shape the code:
 - **Self-describing.** `QnnSystemContext_getBinaryInfo` exposes graph names,
   tensor names/shapes/dtypes/quant params **and tensor ids**. The runtime
   trusts the binary, not hardcoded constants — which is what lets Whisper
-  Small / Large-v3-Turbo run through the same pipeline unchanged.
+  Tiny / Small / Large-v3-Turbo run through the same pipeline unchanged.
+
+The second supported format is **DLC** (`.dlc`) — a device-agnostic graph
+container. `LoadDlc()` creates an empty context on the selected backend, has
+`libQnnSystem` compose the graphs into it (`systemDlcCreateFromFile` →
+`systemDlcComposeGraphs`), then finalizes (= online prepare; HTP pulls in
+`libQnnHtpPrepare.so`). Slower to load than a context binary, but one float
+DLC runs on HTP *and* GPU *and* CPU — the model zoo and the three-way
+benchmark are built on this.
 
 ## 2. Native runtime (`app/src/main/cpp/`)
 

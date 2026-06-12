@@ -50,6 +50,7 @@ class GenerateViewModel(app: Application) : AndroidViewModel(app) {
         numSteps: Int,
         cfgScale: Float,
         seed: Long,
+        sampler: StableDiffusionPipeline.Sampler = StableDiffusionPipeline.Sampler.EULER,
     ) {
         if (currentJob?.isActive == true) return
         currentJob = viewModelScope.launch {
@@ -65,6 +66,7 @@ class GenerateViewModel(app: Application) : AndroidViewModel(app) {
                         numSteps = numSteps,
                         cfgScale = cfgScale,
                         seed = resolvedSeed,
+                        sampler = sampler,
                         onProgress = { step ->
                             _state.value = State.Generating(
                                 step = step.step + 1,

@@ -77,10 +77,12 @@ class BenchmarkRunner(private val ctx: Context) {
         iters: Int,
         warmup: Int,
     ): BenchmarkRow {
-        // Pick the first .bin file as the model to load — single-graph models only.
-        val binRel = asset.expectedFiles.firstOrNull { it.endsWith(".bin") }
-            ?: return BenchmarkRow(asset.displayName, backend, 0, 0, 0, 0, 0, 0,
-                error = "no .bin in catalog entry")
+        // Pick the first model file. Context binaries (.bin) are HTP-only;
+        // DLCs compose on-device for whichever backend is selected.
+        val binRel = asset.expectedFiles.firstOrNull {
+            it.endsWith(".bin") || it.endsWith(".dlc")
+        } ?: return BenchmarkRow(asset.displayName, backend, 0, 0, 0, 0, 0, 0,
+            error = "no .bin/.dlc in catalog entry")
         val binFile = store.pathOf(binRel)
         if (!binFile.exists()) {
             return BenchmarkRow(asset.displayName, backend, 0, 0, 0, 0, 0, 0,

@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.Color
 import android.util.Log
 import io.melan.npulab.scheduler.DpmSolverMultistep
+import io.melan.npulab.scheduler.EulerDiscreteSolver
 import io.melan.npulab.tokenizer.ClipTokenizer
 import java.io.Closeable
 import java.nio.ByteBuffer
@@ -116,6 +117,46 @@ class StableDiffusionPipeline(
         }
     }
 
+    /** Sampler choice for [generate]. */
+    enum class Sampler {
+        /** diffusers EulerDiscrete — what the AI Hub binaries were calibrated
+         *  against (Qualcomm's reference app). Safest default for quality. */
+        EULER,
+
+        /** DPM-Solver++ 2M — usually sharper at 20 steps on float models;
+         *  formulas verified against diffusers. */
+        DPMPP_2M,
+    }
+
+    /** Uniform facade over the two schedulers used by [generate]. */
+    private interface Sched {
+        val steps: Int
+        fun timestep(i: Int): Float
+        fun initialLatents(numel: Int, seed: Long): FloatArray
+        fun scaleModelInput(latents: FloatArray, i: Int): FloatArray
+        fun step(i: Int, latents: FloatArray, eps: FloatArray): FloatArray
+    }
+
+    private fun makeSched(sampler: Sampler, numSteps: Int): Sched = when (sampler) {
+        Sampler.EULER -> object : Sched {
+            private val s = EulerDiscreteSolver(numInferenceSteps = numSteps)
+            override val steps = numSteps
+            override fun timestep(i: Int) = s.timesteps[i]
+            override fun initialLatents(numel: Int, seed: Long) = s.initialLatents(numel, seed)
+            override fun scaleModelInput(latents: FloatArray, i: Int) = s.scaleModelInput(latents, i)
+            override fun step(i: Int, latents: FloatArray, eps: FloatArray) = s.step(i, latents, eps)
+        }
+        Sampler.DPMPP_2M -> object : Sched {
+            private val s = DpmSolverMultistep(numInferenceSteps = numSteps)
+            override val steps = numSteps
+            override fun timestep(i: Int) = s.timesteps[i].toFloat()
+            override fun initialLatents(numel: Int, seed: Long) =
+                s.initialLatents(intArrayOf(numel), seed)
+            override fun scaleModelInput(latents: FloatArray, i: Int) = latents // VP: identity
+            override fun step(i: Int, latents: FloatArray, eps: FloatArray) = s.step(i, latents, eps)
+        }
+    }
+
     data class StepTiming(val step: Int, val totalSteps: Int, val unetUs: Long)
 
     data class Result(
@@ -133,6 +174,7 @@ class StableDiffusionPipeline(
         numSteps: Int = 20,
         cfgScale: Float = CFG_SCALE_DEFAULT,
         seed: Long = -1,
+        sampler: Sampler = Sampler.EULER,
         onProgress: ((StepTiming) -> Unit)? = null,
     ): Result {
         val resolvedSeed = if (seed < 0) System.nanoTime() else seed
@@ -142,11 +184,11 @@ class StableDiffusionPipeline(
         val uncondEmbed = runTextEncoder(negativePrompt)
         val textEncoderUs = (System.nanoTime() - wallStart) / 1000L
 
-        val scheduler = DpmSolverMultistep(numInferenceSteps = numSteps)
+        val sched = makeSched(sampler, numSteps)
         // Latents are NHWC in the binary, but the scheduler is shape-agnostic — it
         // operates on a flat FloatArray of size 4*64*64.
-        var latents = scheduler.initialLatents(
-            intArrayOf(LATENT_CHANNELS, LATENT_HW, LATENT_HW),
+        var latents = sched.initialLatents(
+            LATENT_CHANNELS * LATENT_HW * LATENT_HW,
             resolvedSeed,
         )
 
@@ -154,13 +196,15 @@ class StableDiffusionPipeline(
         var unetTotal = 0L
         for (s in 0 until numSteps) {
             val tStart = System.nanoTime()
-            val t = scheduler.timesteps[s].toFloat()
-            val condEps = runUnet(latents, t, condEmbed)
-            val uncondEps = runUnet(latents, t, uncondEmbed)
+            val t = sched.timestep(s)
+            // What the UNet consumes (Euler: x/√(σ²+1) = VP x_t; DPM++: as-is).
+            val unetInput = sched.scaleModelInput(latents, s)
+            val condEps = runUnet(unetInput, t, condEmbed)
+            val uncondEps = runUnet(unetInput, t, uncondEmbed)
             val guided = FloatArray(condEps.size) { i ->
                 uncondEps[i] + cfgScale * (condEps[i] - uncondEps[i])
             }
-            latents = scheduler.step(s, latents, guided)
+            latents = sched.step(s, latents, guided)
             val us = (System.nanoTime() - tStart) / 1000L
             unetTotal += us
             val st = StepTiming(s, numSteps, us)

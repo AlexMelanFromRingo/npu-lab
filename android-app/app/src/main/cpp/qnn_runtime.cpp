@@ -41,6 +41,7 @@
 #include "HTP/QnnHtpPerfInfrastructure.h"
 #include "System/QnnSystemInterface.h"
 #include "System/QnnSystemContext.h"
+#include "System/QnnSystemDlc.h"
 
 #include "binary_info_walk.h"
 
@@ -605,6 +606,12 @@ public:
     }
 
     uint64_t LoadContextBinary(const std::string& path) override {
+        // DLC = device-agnostic graph container: composed and prepared ON
+        // DEVICE for whichever backend this runtime wraps. This is what makes
+        // the GPU/CPU backends usable — HTP context binaries are HTP-only.
+        if (path.size() > 4 && path.compare(path.size() - 4, 4, ".dlc") == 0) {
+            return LoadDlc(path);
+        }
         std::vector<uint8_t> buf;
         if (!SlurpFile(path, &buf)) {
             last_error_ = "Failed to read " + path;
@@ -690,6 +697,115 @@ public:
              path.c_str(), contexts_[handle].graph_name.c_str(),
              contexts_[handle].inputs.size(),
              contexts_[handle].outputs.size());
+        return handle;
+    }
+
+    /**
+     * Load a .dlc (Deep Learning Container): create an empty context on this
+     * backend, let libQnnSystem compose the graphs into it, then finalize
+     * (= online prepare; on HTP this pulls in libQnnHtpPrepare.so). Mirrors
+     * the SampleApp dlc_utils flow. Slower to load than a context binary,
+     * but runs on HTP *and* GPU *and* CPU from one file.
+     */
+    uint64_t LoadDlc(const std::string& path) {
+        const auto& sys = sys_iface_->QNN_SYSTEM_INTERFACE_VER_NAME;
+        if (!sys.systemDlcCreateFromFile || !sys.systemDlcComposeGraphs) {
+            last_error_ = "This libQnnSystem.so has no DLC support";
+            return 0;
+        }
+
+        Qnn_ContextHandle_t ctx = nullptr;
+        auto rc = iface_->QNN_INTERFACE_VER_NAME.contextCreate(
+            backend_handle_, device_handle_, nullptr, &ctx);
+        if (rc != QNN_SUCCESS) {
+            last_error_ = "contextCreate rc=" + std::to_string(rc) + " (" +
+                          qnnErrorName(static_cast<uint32_t>(rc)) + ")" + RecentQnnLog();
+            return 0;
+        }
+
+        QnnSystemDlc_Handle_t dlc = nullptr;
+        rc = sys.systemDlcCreateFromFile(nullptr /*logger*/, path.c_str(), &dlc);
+        if (rc != QNN_SUCCESS || dlc == nullptr) {
+            last_error_ = "systemDlcCreateFromFile rc=" + std::to_string(rc) +
+                          " for " + path + RecentQnnLog();
+            iface_->QNN_INTERFACE_VER_NAME.contextFree(ctx, nullptr);
+            return 0;
+        }
+
+        QnnSystemContext_GraphInfo_t* graphs = nullptr;
+        uint32_t numGraphs = 0;
+        const auto compose_t0 = std::chrono::steady_clock::now();
+        rc = sys.systemDlcComposeGraphs(
+            dlc, nullptr /*graphConfigs*/, 0, backend_handle_, ctx, *iface_,
+            QNN_SYSTEM_CONTEXT_GRAPH_INFO_VERSION_1, &graphs, &numGraphs);
+        if (rc != QNN_SUCCESS || numGraphs == 0 || graphs == nullptr) {
+            last_error_ = "systemDlcComposeGraphs rc=" + std::to_string(rc) +
+                          " (" + qnnErrorName(static_cast<uint32_t>(rc)) + ") for " +
+                          path + RecentQnnLog();
+            sys.systemDlcFree(dlc);
+            iface_->QNN_INTERFACE_VER_NAME.contextFree(ctx, nullptr);
+            return 0;
+        }
+
+        LoadedContext lc;
+        const auto& gi = graphs[0];
+        if (gi.version != QNN_SYSTEM_CONTEXT_GRAPH_INFO_VERSION_1) {
+            last_error_ = "Unexpected composed GraphInfo version";
+            sys.systemDlcFree(dlc);
+            iface_->QNN_INTERFACE_VER_NAME.contextFree(ctx, nullptr);
+            return 0;
+        }
+        lc.graph_name = gi.graphInfoV1.graphName ? gi.graphInfoV1.graphName : "";
+        for (uint32_t i = 0; i < gi.graphInfoV1.numGraphInputs; ++i) {
+            lc.inputs.push_back(introspect::TensorToDesc(gi.graphInfoV1.graphInputs[i]));
+        }
+        for (uint32_t i = 0; i < gi.graphInfoV1.numGraphOutputs; ++i) {
+            lc.outputs.push_back(introspect::TensorToDesc(gi.graphInfoV1.graphOutputs[i]));
+        }
+        if (numGraphs > 1) {
+            LOGW("DLC %s has %u graphs — using '%s' only",
+                 path.c_str(), numGraphs, lc.graph_name.c_str());
+        }
+
+        Qnn_GraphHandle_t graph = nullptr;
+        rc = iface_->QNN_INTERFACE_VER_NAME.graphRetrieve(ctx, lc.graph_name.c_str(), &graph);
+        if (rc == QNN_SUCCESS && graph != nullptr) {
+            rc = iface_->QNN_INTERFACE_VER_NAME.graphFinalize(graph, nullptr, nullptr);
+        }
+        const auto compose_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - compose_t0).count();
+
+        // Free the malloc'd system graph infos per the SampleApp contract.
+        for (uint32_t i = 0; i < numGraphs; ++i) {
+            if (graphs[i].version == QNN_SYSTEM_CONTEXT_GRAPH_INFO_VERSION_1) {
+                free(const_cast<char*>(graphs[i].graphInfoV1.graphName));
+                free(graphs[i].graphInfoV1.graphInputs);
+                free(graphs[i].graphInfoV1.graphOutputs);
+            }
+        }
+        free(graphs);
+        sys.systemDlcFree(dlc);
+
+        if (rc != QNN_SUCCESS || graph == nullptr) {
+            last_error_ = "graph retrieve/finalize rc=" + std::to_string(rc) +
+                          " (" + qnnErrorName(static_cast<uint32_t>(rc)) + ") for " +
+                          path + ((backend_ == Backend::HTP)
+                              ? " — check libQnnHtpPrepare.so is present" : "") +
+                          RecentQnnLog();
+            iface_->QNN_INTERFACE_VER_NAME.contextFree(ctx, nullptr);
+            return 0;
+        }
+
+        lc.ctx = ctx;
+        lc.graph = graph;
+        lc.in_dims_storage.resize(lc.inputs.size());
+        lc.out_dims_storage.resize(lc.outputs.size());
+        const uint64_t handle = reinterpret_cast<uint64_t>(ctx);
+        contexts_[handle] = std::move(lc);
+        LOGI("composed DLC %s on %s in %lld ms — graph='%s' inputs=%zu outputs=%zu",
+             path.c_str(), BackendName(backend_), (long long)compose_ms,
+             contexts_[handle].graph_name.c_str(),
+             contexts_[handle].inputs.size(), contexts_[handle].outputs.size());
         return handle;
     }
 

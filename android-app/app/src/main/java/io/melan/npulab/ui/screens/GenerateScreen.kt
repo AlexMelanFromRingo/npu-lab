@@ -81,6 +81,9 @@ fun GenerateScreen(vm: GenerateViewModel = viewModel()) {
     var steps by remember { mutableStateOf(20f) }
     var cfg by remember { mutableStateOf(7.5f) }
     var seed by remember { mutableLongStateOf(-1L) }
+    var sampler by remember {
+        mutableStateOf(io.melan.npulab.inference.StableDiffusionPipeline.Sampler.EULER)
+    }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -146,6 +149,21 @@ fun GenerateScreen(vm: GenerateViewModel = viewModel()) {
                 )
             }
             item {
+                SectionTitle("Sampler")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    androidx.compose.material3.FilterChip(
+                        selected = sampler == io.melan.npulab.inference.StableDiffusionPipeline.Sampler.EULER,
+                        onClick = { sampler = io.melan.npulab.inference.StableDiffusionPipeline.Sampler.EULER },
+                        label = { Text("Euler (reference)") },
+                    )
+                    androidx.compose.material3.FilterChip(
+                        selected = sampler == io.melan.npulab.inference.StableDiffusionPipeline.Sampler.DPMPP_2M,
+                        onClick = { sampler = io.melan.npulab.inference.StableDiffusionPipeline.Sampler.DPMPP_2M },
+                        label = { Text("DPM++ 2M") },
+                    )
+                }
+            }
+            item {
                 SectionTitle("Steps  •  ${steps.toInt()}")
                 Slider(
                     value = steps,
@@ -208,6 +226,7 @@ fun GenerateScreen(vm: GenerateViewModel = viewModel()) {
                             numSteps = steps.toInt(),
                             cfgScale = cfg,
                             seed = seed,
+                            sampler = sampler,
                         )
                     },
                     enabled = !busy && prompt.isNotBlank(),
