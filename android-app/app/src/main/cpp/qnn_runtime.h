@@ -61,6 +61,15 @@ public:
      *  layer to route context-scoped calls to the right backend instance. */
     virtual bool HasContext(uint64_t ctx_handle) const = 0;
 
+    /**
+     * Serialize a finalized context to a QNN context binary on disk. After a
+     * DLC has been composed + finalized on-device (on-device compilation for
+     * the connected chip), this caches the result as a `.bin` that
+     * contextCreateFromBinary can load directly — skipping the slow prepare on
+     * every subsequent load. Returns false (with last_error set) on failure.
+     */
+    virtual bool SerializeContext(uint64_t ctx_handle, const std::string& out_path) = 0;
+
     virtual std::vector<TensorDesc> GraphInputs(uint64_t ctx_handle, int graph_index) = 0;
     virtual std::vector<TensorDesc> GraphOutputs(uint64_t ctx_handle, int graph_index) = 0;
 

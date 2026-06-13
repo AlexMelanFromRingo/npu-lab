@@ -821,6 +821,40 @@ public:
         return contexts_.count(handle) != 0;
     }
 
+    bool SerializeContext(uint64_t handle, const std::string& out_path) override {
+        auto it = contexts_.find(handle);
+        if (it == contexts_.end()) { last_error_ = "Unknown context handle"; return false; }
+        const auto& q = iface_->QNN_INTERFACE_VER_NAME;
+        if (!q.contextGetBinarySize || !q.contextGetBinary) {
+            last_error_ = "This backend can't serialize contexts (no getBinary)";
+            return false;
+        }
+        Qnn_ContextHandle_t ctx = it->second.ctx;
+        Qnn_ContextBinarySize_t size = 0;
+        auto rc = q.contextGetBinarySize(ctx, &size);
+        if (rc != QNN_SUCCESS || size == 0) {
+            last_error_ = "contextGetBinarySize rc=" + std::to_string(rc) +
+                          " (" + qnnErrorName(static_cast<uint32_t>(rc)) + ")";
+            return false;
+        }
+        std::vector<uint8_t> buf(size);
+        Qnn_ContextBinarySize_t written = 0;
+        rc = q.contextGetBinary(ctx, buf.data(), size, &written);
+        if (rc != QNN_SUCCESS || written == 0) {
+            last_error_ = "contextGetBinary rc=" + std::to_string(rc) +
+                          " (" + qnnErrorName(static_cast<uint32_t>(rc)) + ")";
+            return false;
+        }
+        std::ofstream f(out_path, std::ios::binary | std::ios::trunc);
+        if (!f) { last_error_ = "cannot open " + out_path + " for write"; return false; }
+        f.write(reinterpret_cast<const char*>(buf.data()),
+                static_cast<std::streamsize>(written));
+        if (!f.good()) { last_error_ = "write failed: " + out_path; return false; }
+        LOGI("serialized context %s (%llu B)", out_path.c_str(),
+             static_cast<unsigned long long>(written));
+        return true;
+    }
+
     std::vector<TensorDesc> GraphInputs(uint64_t handle, int) override {
         auto it = contexts_.find(handle);
         return it == contexts_.end() ? std::vector<TensorDesc>{} : it->second.inputs;
@@ -1139,6 +1173,7 @@ public:
     uint64_t LoadContextBinary(const std::string&) override { return 0; }
     bool FreeContext(uint64_t) override { return false; }
     bool HasContext(uint64_t) const override { return false; }
+    bool SerializeContext(uint64_t, const std::string&) override { return false; }
     std::vector<TensorDesc> GraphInputs(uint64_t, int) override { return {}; }
     std::vector<TensorDesc> GraphOutputs(uint64_t, int) override { return {}; }
     int64_t Execute(uint64_t, int,

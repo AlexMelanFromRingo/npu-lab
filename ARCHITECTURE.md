@@ -57,6 +57,18 @@ container. `LoadDlc()` creates an empty context on the selected backend, has
 DLC runs on HTP *and* GPU *and* CPU — the model zoo and the three-way
 benchmark are built on this.
 
+**On-device compilation (the device half of the toolchain).** A DLC is composed
++ finalized for the connected chip on *every* load — that prepare is the slow
+part. `SerializeContext()` (C++/JNI, via `QnnContext_getBinarySize` +
+`QnnContext_getBinary`) writes the finalized context to a `.bin`. `OnDeviceCompiler`
+(Kotlin) drives it: load each installed DLC on HTP → serialize to
+`models/custom/<name>.htp<arch>.bin`, where `scanCustomBins` surfaces it as a
+fast, HTP-only context binary — the exact format AI Hub ships, but produced
+locally for *this* chip. The Device tab → "On-device compile" runs the batch and
+shows per-model compose time. ONNX→DLC still needs the x86 `qairt-converter`
+(`scripts/compile-model.py`); Project Panama / `java.lang.foreign` is not
+available on Android ART, so the device side is plain JNI.
+
 ## 2. Native runtime (`app/src/main/cpp/`)
 
 `qnn_runtime.cpp` owns one backend instance per `QnnRuntime` object:

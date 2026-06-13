@@ -30,8 +30,8 @@ android {
         applicationId = "io.melan.npulab"
         minSdk = 31
         targetSdk = 35
-        versionCode = 10
-        versionName = "0.9.0"
+        versionCode = 11
+        versionName = "0.10.0"
 
         ndk {
             // S26 Ultra is arm64-v8a. We do not target other ABIs because QNN HTP

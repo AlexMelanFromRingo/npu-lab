@@ -171,5 +171,12 @@ class QnnModel(
         return NpuLabNative.execute(handle, 0, inputBuffers, outputBuffers)
     }
 
+    /**
+     * Serialize this (finalized) context to a fast-loading QNN context binary
+     * at [path]. Meaningful after loading a DLC: the on-device-composed graph
+     * is cached so the next load skips the slow prepare. Throws on failure.
+     */
+    fun serializeTo(path: String): Boolean = NpuLabNative.serializeContext(handle, path)
+
     override fun close() = NpuLabNative.freeContext(handle)
 }

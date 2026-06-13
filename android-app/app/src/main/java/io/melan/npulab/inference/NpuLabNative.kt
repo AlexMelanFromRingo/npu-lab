@@ -74,6 +74,14 @@ object NpuLabNative {
         outputs: Array<java.nio.ByteBuffer>,
     ): Long
 
+    /**
+     * Serialize a loaded (finalized) context to a QNN context binary at [path].
+     * Use after loading a DLC — the DLC is composed/finalized for this chip
+     * on-device, and this caches the result as a fast-loading `.bin`. Throws
+     * [QnnException] on failure.
+     */
+    external fun serializeContext(contextHandle: Long, path: String): Boolean
+
     /** Returns a JSON blob with backend version, HTP arch, available memory, etc. */
     external fun queryDeviceInfo(backendHandle: Long): String
 

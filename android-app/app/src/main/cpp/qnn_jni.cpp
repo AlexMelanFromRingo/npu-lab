@@ -190,6 +190,19 @@ Java_io_melan_npulab_inference_NpuLabNative_execute(
     return static_cast<jlong>(us);
 }
 
+JNIEXPORT jboolean JNICALL
+Java_io_melan_npulab_inference_NpuLabNative_serializeContext(
+    JNIEnv* env, jclass, jlong ctx_handle, jstring jpath) {
+    npulab::QnnRuntime* owner = OwnerOfContext(static_cast<uint64_t>(ctx_handle));
+    if (!owner) { ThrowQnnException(env, "no runtime owns this context handle"); return JNI_FALSE; }
+    const char* c = env->GetStringUTFChars(jpath, nullptr);
+    std::string path(c ? c : "");
+    if (c) env->ReleaseStringUTFChars(jpath, c);
+    bool ok = owner->SerializeContext(static_cast<uint64_t>(ctx_handle), path);
+    if (!ok) { ThrowQnnException(env, owner->last_error()); return JNI_FALSE; }
+    return JNI_TRUE;
+}
+
 JNIEXPORT jstring JNICALL
 Java_io_melan_npulab_inference_NpuLabNative_queryDeviceInfo(
     JNIEnv* env, jclass, jlong backend_handle) {

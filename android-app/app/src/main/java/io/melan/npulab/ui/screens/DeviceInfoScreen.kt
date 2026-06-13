@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -35,6 +37,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -216,6 +219,8 @@ fun DeviceInfoScreen() {
                     }
                 }
             }
+            item { SectionTitle("On-device compile") }
+            item { OnDeviceCompileCard() }
             item { SectionTitle("NPU self-test") }
             item { NpuSelfTestCard() }
             data.runtimeJson?.let { json ->
@@ -236,6 +241,118 @@ fun DeviceInfoScreen() {
                 }
             }
             item { VSpace(16) }
+        }
+    }
+}
+
+private sealed interface CompileState {
+    data object Idle : CompileState
+    data class Running(val done: Int, val total: Int, val name: String) : CompileState
+    data class Done(val results: List<io.melan.npulab.inference.OnDeviceCompiler.CompileResult>) : CompileState
+}
+
+/**
+ * On-device compiler: composes every installed DLC for this exact chip and
+ * serializes it to a fast-loading context binary in models/custom/, where the
+ * Benchmark/Vision tabs pick it up. Shows per-model compile time — the cost you
+ * pay once so later loads skip the prepare.
+ */
+@Composable
+private fun OnDeviceCompileCard() {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var state by remember { mutableStateOf<CompileState>(CompileState.Idle) }
+    var cacheBytes by remember { mutableStateOf(0L) }
+    val dlcCount = remember { io.melan.npulab.inference.OnDeviceCompiler.installedDlcs(ctx).size }
+    LaunchedEffect(state) {
+        cacheBytes = withContext(Dispatchers.IO) {
+            io.melan.npulab.inference.OnDeviceCompiler.cacheBytes(ctx)
+        }
+    }
+
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = "Compiles your installed DLC models for this exact chip and " +
+                    "saves them as fast-loading context binaries. The compiled " +
+                    "models appear in Benchmark / Vision. ONNX→DLC stays on PC; " +
+                    "this is the on-device half.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            VSpace(8)
+            Text(
+                "$dlcCount installed DLC model(s) · cache ${cacheBytes / (1024 * 1024)} MB " +
+                    "· target ${io.melan.npulab.inference.OnDeviceCompiler.archTag()}",
+                style = MaterialTheme.typography.labelMedium,
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            VSpace(12)
+            when (val s = state) {
+                is CompileState.Running -> {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(12.dp))
+                        Text("Compiling ${s.done}/${s.total}: ${s.name}…",
+                            style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+                else -> {
+                    Row {
+                        FilledTonalButton(
+                            onClick = {
+                                scope.launch {
+                                    val results = withContext(Dispatchers.IO) {
+                                        io.melan.npulab.inference.OnDeviceCompiler.compileAll(ctx) { i, n, name ->
+                                            state = CompileState.Running(i, n, name)
+                                        }
+                                    }
+                                    state = CompileState.Done(results)
+                                }
+                            },
+                            enabled = dlcCount > 0,
+                        ) {
+                            Icon(Icons.Outlined.Bolt, contentDescription = null)
+                            Spacer(Modifier.width(4.dp))
+                            Text(if (s is CompileState.Done) "Recompile" else "Compile for this chip")
+                        }
+                        if (cacheBytes > 0) {
+                            Spacer(Modifier.width(4.dp))
+                            TextButton(onClick = {
+                                io.melan.npulab.inference.OnDeviceCompiler.clearCache(ctx)
+                                state = CompileState.Idle
+                                cacheBytes = 0
+                            }) { Text("Clear") }
+                        }
+                    }
+                }
+            }
+            (state as? CompileState.Done)?.let { done ->
+                VSpace(10)
+                done.results.forEach { r ->
+                    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+                        Text(if (r.ok) "✓" else "✗",
+                            color = if (r.ok) MaterialTheme.colorScheme.tertiary
+                            else MaterialTheme.colorScheme.error,
+                            fontFamily = FontFamily.Monospace)
+                        Spacer(Modifier.width(8.dp))
+                        Text(r.name, modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            if (r.ok) "${r.composeMs} ms · ${r.outBytes / (1024 * 1024)} MB"
+                            else (r.error ?: "failed"),
+                            style = MaterialTheme.typography.labelMedium,
+                            fontFamily = FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
         }
     }
 }
