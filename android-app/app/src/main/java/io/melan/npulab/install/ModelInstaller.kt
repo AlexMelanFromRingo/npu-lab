@@ -47,7 +47,7 @@ class ModelInstaller(private val ctx: Context) {
             return@flow
         }
         val store = ModelStore(ctx)
-        val zipTmp = File(ctx.cacheDir, "install_${asset.kind.name}.zip.tmp")
+        val zipTmp = File(ctx.cacheDir, "install_${asset.id}.zip.tmp")
         var totalBytes = 0L
         try {
             // ── 1. Download the zip ─────────────────────────────────
@@ -135,7 +135,7 @@ class ModelInstaller(private val ctx: Context) {
             emit(Progress.Failed("Cancelled"))
             throw c
         } catch (t: Throwable) {
-            Log.e(TAG, "install ${asset.kind} failed", t)
+            Log.e(TAG, "install ${asset.id} failed", t)
             emit(Progress.Failed(t.message ?: t::class.java.simpleName))
         } finally {
             if (zipTmp.exists()) zipTmp.delete()

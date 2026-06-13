@@ -1,5 +1,7 @@
 package io.melan.npulab.ui.screens
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,6 +22,7 @@ import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.CloudDownload
 import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.DriveFolderUpload
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Stop
 import androidx.compose.material3.AssistChip
@@ -29,6 +32,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
@@ -40,21 +44,43 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.melan.npulab.inference.ModelAsset
 import io.melan.npulab.inference.ModelCatalog
+import io.melan.npulab.inference.ModelCategory
 import io.melan.npulab.ui.components.SectionTitle
 import io.melan.npulab.ui.components.VSpace
+import android.widget.Toast
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CatalogScreen(vm: CatalogViewModel = viewModel()) {
     val ui by vm.state.collectAsStateWithLifecycle()
+    val ctx = LocalContext.current
+
+    val picker = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri -> if (uri != null) vm.importFromStorage(uri) }
+
+    LaunchedEffect(ui.importMessage) {
+        ui.importMessage?.let {
+            if (it != "Importing…") {
+                Toast.makeText(ctx, it, Toast.LENGTH_LONG).show()
+                vm.clearImportMessage()
+            }
+        }
+    }
+
+    // Group catalog by category, keeping declaration order within each group.
+    val grouped = remember { ModelCatalog.all.groupBy { it.category } }
 
     Column(
         modifier = Modifier
@@ -78,26 +104,62 @@ fun CatalogScreen(vm: CatalogViewModel = viewModel()) {
                 IntroBanner(
                     installedCount = ui.installed.size,
                     totalCount = ModelCatalog.all.size,
+                    importing = ui.importMessage == "Importing…",
+                    onImport = { picker.launch("*/*") },
                 )
             }
-            item { SectionTitle("Catalog") }
-            items(ModelCatalog.all, key = { it.kind.name }) { asset ->
-                ModelCard(
-                    asset = asset,
-                    isInstalled = asset.kind in ui.installed,
-                    state = ui.states[asset.kind] ?: CatalogViewModel.CardState.Idle,
-                    onInstall = { vm.install(asset) },
-                    onCancel = { vm.cancel(asset) },
-                    onUninstall = { vm.uninstall(asset) },
-                )
+            for (cat in CATEGORY_ORDER) {
+                val assets = grouped[cat] ?: continue
+                item(key = "hdr_$cat") { SectionTitle(categoryLabel(cat)) }
+                items(assets, key = { it.id }) { asset ->
+                    ModelCard(
+                        asset = asset,
+                        isInstalled = asset.id in ui.installed,
+                        state = ui.states[asset.id] ?: CatalogViewModel.CardState.Idle,
+                        onInstall = { vm.install(asset) },
+                        onCancel = { vm.cancel(asset) },
+                        onUninstall = { vm.uninstall(asset) },
+                    )
+                }
             }
             item { VSpace(16) }
         }
     }
 }
 
+private val CATEGORY_ORDER = listOf(
+    ModelCategory.TEXT_TO_IMAGE,
+    ModelCategory.SPEECH,
+    ModelCategory.CLASSIFICATION,
+    ModelCategory.DETECTION,
+    ModelCategory.POSE,
+    ModelCategory.DEPTH,
+    ModelCategory.SEGMENTATION,
+    ModelCategory.SUPER_RESOLUTION,
+    ModelCategory.INPAINTING,
+    ModelCategory.OTHER,
+)
+
+private fun categoryLabel(c: ModelCategory): String = when (c) {
+    ModelCategory.TEXT_TO_IMAGE -> "Text → Image"
+    ModelCategory.SPEECH -> "Speech"
+    ModelCategory.CLASSIFICATION -> "Image classification"
+    ModelCategory.DETECTION -> "Detection"
+    ModelCategory.POSE -> "Pose"
+    ModelCategory.DEPTH -> "Depth"
+    ModelCategory.SEGMENTATION -> "Segmentation"
+    ModelCategory.SUPER_RESOLUTION -> "Super-resolution"
+    ModelCategory.INPAINTING -> "Inpainting"
+    ModelCategory.OTHER -> "Other"
+}
+
 @Composable
-private fun IntroBanner(installedCount: Int, totalCount: Int) {
+private fun IntroBanner(
+    installedCount: Int,
+    totalCount: Int,
+    importing: Boolean,
+    onImport: () -> Unit,
+) {
     Card(
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
@@ -117,10 +179,20 @@ private fun IntroBanner(installedCount: Int, totalCount: Int) {
             Spacer(Modifier.height(8.dp))
             Text(
                 "Models download straight from the public Qualcomm S3 mirror, no AI Hub " +
-                "account needed. They land in Android/data/io.melan.npulab/files/models/.",
+                    "account needed. Or import your own .bin / .dlc / .zip from this phone.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
             )
+            Spacer(Modifier.height(12.dp))
+            FilledTonalButton(
+                onClick = onImport,
+                enabled = !importing,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(Icons.Outlined.DriveFolderUpload, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text(if (importing) "Importing…" else "Import from storage")
+            }
         }
     }
 }
@@ -135,7 +207,7 @@ private fun ModelCard(
     onUninstall: () -> Unit,
 ) {
     val busy = state is CatalogViewModel.CardState.Downloading ||
-               state is CatalogViewModel.CardState.Extracting
+        state is CatalogViewModel.CardState.Extracting
     val source = asset.installSource
 
     Card(
@@ -189,8 +261,8 @@ private fun ModelCard(
                     Spacer(Modifier.height(6.dp))
                     Text(
                         text = "${state.phase}  ·  " +
-                                "${state.bytesDone / (1024 * 1024)} / " +
-                                "${state.bytesTotal / (1024 * 1024)} MiB",
+                            "${state.bytesDone / (1024 * 1024)} / " +
+                            "${state.bytesTotal / (1024 * 1024)} MiB",
                         style = MaterialTheme.typography.labelMedium,
                         fontFamily = FontFamily.Monospace,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -229,7 +301,6 @@ private fun ModelCard(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)) {
 
                 if (source == null) {
-                    // Read-only banner: needs AI Hub
                     Surface(
                         shape = RoundedCornerShape(14.dp),
                         color = MaterialTheme.colorScheme.surfaceVariant,

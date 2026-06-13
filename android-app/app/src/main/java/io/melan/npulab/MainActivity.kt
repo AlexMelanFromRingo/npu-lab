@@ -12,7 +12,6 @@ import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.CloudDownload
 import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.outlined.Memory
-import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -33,9 +32,8 @@ import androidx.navigation.compose.rememberNavController
 import io.melan.npulab.ui.screens.BenchmarkScreen
 import io.melan.npulab.ui.screens.CatalogScreen
 import io.melan.npulab.ui.screens.DeviceInfoScreen
-import io.melan.npulab.ui.screens.GenerateScreen
 import io.melan.npulab.ui.screens.SettingsScreen
-import io.melan.npulab.ui.screens.TranscribeScreen
+import io.melan.npulab.ui.screens.StudioScreen
 import io.melan.npulab.ui.theme.NpuLabTheme
 
 class MainActivity : ComponentActivity() {
@@ -68,10 +66,9 @@ private fun NpuLabApp() {
     val currentRoute = backStackEntry?.destination?.route
 
     val tabs = listOf(
-        TabDestination("generate", "Generate", Icons.Outlined.AutoAwesome),
-        TabDestination("speech", "Speech", Icons.Outlined.Mic),
-        TabDestination("benchmark", "Bench", Icons.Outlined.Speed),
+        TabDestination("studio", "Studio", Icons.Outlined.AutoAwesome),
         TabDestination("catalog", "Models", Icons.Outlined.CloudDownload),
+        TabDestination("benchmark", "Bench", Icons.Outlined.Speed),
         TabDestination("device", "Device", Icons.Outlined.Memory),
         TabDestination("settings", "Account", Icons.Outlined.Key),
     )
@@ -104,13 +101,12 @@ private fun NpuLabApp() {
     ) { padding ->
         NavHost(
             navController = navController,
-            startDestination = "generate",
+            startDestination = "studio",
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
         ) {
-            composable("generate") { GenerateScreen() }
-            composable("speech") { TranscribeScreen() }
+            composable("studio") { StudioScreen() }
             composable("benchmark") { BenchmarkScreen() }
             composable("catalog") { CatalogScreen() }
             composable("device") { DeviceInfoScreen() }

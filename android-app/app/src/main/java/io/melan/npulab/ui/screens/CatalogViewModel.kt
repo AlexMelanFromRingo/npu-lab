@@ -1,12 +1,12 @@
 package io.melan.npulab.ui.screens
 
 import android.app.Application
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.melan.npulab.inference.ModelAsset
-import io.melan.npulab.inference.ModelCatalog
-import io.melan.npulab.inference.ModelKind
 import io.melan.npulab.inference.ModelStore
+import io.melan.npulab.install.ModelImporter
 import io.melan.npulab.install.ModelInstaller
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -26,13 +26,17 @@ class CatalogViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     data class UiState(
-        val installed: Set<ModelKind> = emptySet(),
-        val states: Map<ModelKind, CardState> = emptyMap(),
+        /** ids of installed catalog assets. */
+        val installed: Set<String> = emptySet(),
+        /** per-asset-id card state. */
+        val states: Map<String, CardState> = emptyMap(),
+        val importMessage: String? = null,
     )
 
     private val installer = ModelInstaller(app.applicationContext)
+    private val importer = ModelImporter(app.applicationContext)
     private val store = ModelStore(app.applicationContext)
-    private val jobs = mutableMapOf<ModelKind, Job>()
+    private val jobs = mutableMapOf<String, Job>()
 
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -42,12 +46,12 @@ class CatalogViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun refreshInstalled() {
-        _state.update { it.copy(installed = store.installedKinds()) }
+        _state.update { it.copy(installed = store.installedIds()) }
     }
 
     fun install(asset: ModelAsset) {
-        if (jobs[asset.kind]?.isActive == true) return
-        jobs[asset.kind] = viewModelScope.launch {
+        if (jobs[asset.id]?.isActive == true) return
+        jobs[asset.id] = viewModelScope.launch {
             installer.install(asset).collect { p ->
                 val cardState = when (p) {
                     is ModelInstaller.Progress.Downloading ->
@@ -59,20 +63,32 @@ class CatalogViewModel(app: Application) : AndroidViewModel(app) {
                     }
                     is ModelInstaller.Progress.Failed -> CardState.Failed(p.message)
                 }
-                _state.update { it.copy(states = it.states + (asset.kind to cardState)) }
+                _state.update { it.copy(states = it.states + (asset.id to cardState)) }
             }
         }
     }
 
     fun cancel(asset: ModelAsset) {
-        jobs[asset.kind]?.cancel()
-        jobs.remove(asset.kind)
-        _state.update { it.copy(states = it.states - asset.kind) }
+        jobs[asset.id]?.cancel()
+        jobs.remove(asset.id)
+        _state.update { it.copy(states = it.states - asset.id) }
     }
 
     fun uninstall(asset: ModelAsset) {
         installer.uninstall(asset)
         refreshInstalled()
-        _state.update { it.copy(states = it.states - asset.kind) }
+        _state.update { it.copy(states = it.states - asset.id) }
     }
+
+    /** Import a user-picked .bin / .dlc / .zip from device storage into models/custom/. */
+    fun importFromStorage(uri: Uri) {
+        viewModelScope.launch {
+            _state.update { it.copy(importMessage = "Importing…") }
+            val result = importer.import(uri)
+            refreshInstalled()
+            _state.update { it.copy(importMessage = result) }
+        }
+    }
+
+    fun clearImportMessage() = _state.update { it.copy(importMessage = null) }
 }

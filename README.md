@@ -11,9 +11,9 @@ Built as a hands-on lab to compare a phone NPU against a desktop GPU
 ```
  Kotlin / Compose UI            C++ runtime                Hexagon NPU (cDSP)
 ┌──────────────────────┐   ┌──────────────────────┐   ┌──────────────────────┐
-│ Generate (SD 1.5)    │   │ qnn_runtime.cpp      │   │ libQnnHtpV81Skel.so  │
-│ Speech (Whisper ×3)  │──▶│  dlopen libQnnHtp.so │──▶│  + libQnnHtpV81.so   │
-│ Benchmark (+custom)  │   │  context binaries    │   │  (shipped in the APK)│
+│ Studio: Generate /   │   │ qnn_runtime.cpp      │   │ libQnnHtpV81Skel.so  │
+│   Speech / Vision    │──▶│  dlopen libQnnHtp.so │──▶│  + libQnnHtpV81.so   │
+│ Models  Benchmark    │   │  ctx-binary + DLC    │   │  (shipped in the APK)│
 │ Device (self-test)   │   │  burst-mode DCVS     │   │  via FastRPC         │
 └──────────────────────┘   └──────────────────────┘   └──────────────────────┘
 ```
@@ -28,7 +28,9 @@ Built as a hands-on lab to compare a phone NPU against a desktop GPU
 
 ## What's inside
 
-- **`android-app/`** — Kotlin 2.0 + Jetpack Compose + Material 3
+- **`android-app/`** — Kotlin 2.0 + Jetpack Compose + Material 3. Five tabs:
+  **Studio** (Generate / Speech / Vision under one segmented switcher),
+  **Models**, **Benchmark**, **Device**, **Account**.
   - **Generate** — Stable Diffusion 1.5 (w8a16): CLIP byte-level BPE tokenizer,
     selectable sampler — EulerDiscrete (the scheduler the AI Hub binaries were
     calibrated against, default) or DPM-Solver++ 2M (verified against
@@ -39,12 +41,20 @@ Built as a hands-on lab to compare a phone NPU against a desktop GPU
     forced `[SOT, lang, transcribe, notimestamps]` prompt, per-chunk language
     auto-detect, recordings up to 2 min (30 s windows). Model flavor selector:
     Base / Small / Large-v3-Turbo (80- and 128-mel, v2/v3 vocab handled).
-  - **Benchmark** — 37-model catalog (SD, Whisper ×4, and a 31-model zoo of
-    classification / detection / depth / segmentation / super-resolution
-    networks as device-agnostic float DLCs) + any custom `.bin`/`.dlc` dropped
-    into `models/custom/`, warmup + median/p95. **DLC models run on HTP, GPU
-    and CPU** — composed and prepared on device per backend, so the three-way
-    comparison is real.
+  - **Vision** — pick a gallery photo or snap one with the camera and run a
+    zoo model on the NPU: top-5 ImageNet classification (bundled labels),
+    colored depth maps, segmentation overlays, super-resolution. Input
+    geometry (NCHW/NHWC, H/W/C) is read from the model; postprocessing is
+    chosen by category.
+  - **Models** — install from the public S3 mirror (grouped by category) or
+    **import your own .bin / .dlc / .zip from the phone** (no adb).
+  - **Benchmark** — 36-model catalog (SD, Whisper ×4, and a 30-model zoo of
+    classification / detection / depth / segmentation / super-resolution / pose
+    networks as device-agnostic float DLCs) + any custom `.bin`/`.dlc` in
+    `models/custom/`. Nothing is selected by default; pick what you want.
+    **DLC models run on HTP, GPU and CPU** — composed and prepared on device
+    per backend, so the three-way comparison is real (context binaries are
+    HTP-only and skip cleanly elsewhere).
   - **Device** — SoC info plus a one-tap **NPU self-test**: every deviceCreate
     flavor × context load, platform info as QNN sees it, full internal log —
     copyable, no adb required.
@@ -103,7 +113,7 @@ Constraints (static shapes, HTP op coverage, SoC binding):
 ## Tests
 
 ```bash
-cd android-app && ./gradlew :app:testDebugUnitTest   # 46 JVM tests
+cd android-app && ./gradlew :app:testDebugUnitTest   # 60 JVM tests
 scripts/run-host-introspect-test.sh                  # C++ vs real binaries
 ```
 

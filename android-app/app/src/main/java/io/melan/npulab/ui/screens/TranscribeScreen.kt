@@ -63,7 +63,7 @@ import io.melan.npulab.ui.components.VSpace
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun TranscribeScreen(vm: TranscribeViewModel = viewModel()) {
+fun TranscribeScreen(vm: TranscribeViewModel = viewModel(), embedded: Boolean = false) {
     val state by vm.state.collectAsStateWithLifecycle()
     val selectedLang by vm.language.collectAsStateWithLifecycle()
     val selectedVariant by vm.variant.collectAsStateWithLifecycle()
@@ -84,7 +84,7 @@ fun TranscribeScreen(vm: TranscribeViewModel = viewModel()) {
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background),
     ) {
-        TopAppBar(
+        if (!embedded) TopAppBar(
             title = { Text("Speech → Text") },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
         )

@@ -83,6 +83,15 @@ class BenchmarkRunner(private val ctx: Context) {
             it.endsWith(".bin") || it.endsWith(".dlc")
         } ?: return BenchmarkRow(asset.displayName, backend, 0, 0, 0, 0, 0, 0,
             error = "no .bin/.dlc in catalog entry")
+
+        // A context binary only deserializes on the backend it was compiled for
+        // (HTP). Skip the GPU/CPU combos cleanly instead of dumping the whole
+        // QNN error wall — they are expected to fail by design.
+        if (binRel.endsWith(".bin") && backend != NpuLabNative.Backend.HTP) {
+            return BenchmarkRow(asset.displayName, backend, 0, 0, 0, 0, 0, 0,
+                error = "skipped — context binary is HTP-only (use a DLC model for ${backend.name})")
+        }
+
         val binFile = store.pathOf(binRel)
         if (!binFile.exists()) {
             return BenchmarkRow(asset.displayName, backend, 0, 0, 0, 0, 0, 0,
@@ -91,8 +100,10 @@ class BenchmarkRunner(private val ctx: Context) {
         val model = try {
             runtime.loadModel(binFile.absolutePath)
         } catch (t: Throwable) {
+            // Keep the row readable — first line only; full log is in logcat.
+            val short = (t.message ?: "load failed").lineSequence().first().take(160)
             return BenchmarkRow(asset.displayName, backend, 0, 0, 0, 0, 0, 0,
-                error = "load failed: ${t.message}")
+                error = short)
         }
         model.use { m ->
             val inputs = m.inputs.map { spec ->

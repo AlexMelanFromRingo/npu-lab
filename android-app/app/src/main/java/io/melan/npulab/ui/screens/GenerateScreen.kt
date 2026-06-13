@@ -70,7 +70,7 @@ import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun GenerateScreen(vm: GenerateViewModel = viewModel()) {
+fun GenerateScreen(vm: GenerateViewModel = viewModel(), embedded: Boolean = false) {
     val state by vm.state.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
@@ -88,7 +88,7 @@ fun GenerateScreen(vm: GenerateViewModel = viewModel()) {
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            TopAppBar(
+            if (!embedded) TopAppBar(
                 title = { Text("Generate") },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,

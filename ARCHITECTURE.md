@@ -168,6 +168,27 @@ Mirrors Qualcomm's `HfWhisperApp` reference loop, generalized over variants:
 - **Tokenizer**: decode-only — reverse vocab + inverse GPT-2 byte table.
   No merges needed for decoding.
 
+## 5b. Vision pipeline
+
+`VisionPipeline` runs a single-input image model (zoo DLC or custom) on HTP and
+renders the output by the asset's `category`:
+
+- input geometry (NCHW vs NHWC, H/W/C) is parsed from the model's input shape;
+  pixels are fed as RGB in `[0,1]` (AI Hub bakes ImageNet normalization into the
+  graph) — raw integer-typed inputs are scaled to `[0,255]`;
+- **classification** → softmax + top-5 against the model's own `labels.txt`
+  (extracted on install) or the bundled `assets/vision/imagenet_classes.txt`;
+  1001-class (TF) outputs are shifted by one for the background slot;
+- **depth** → min-max normalize → turbo colormap bitmap;
+- **segmentation** → per-pixel argmax over the class dim (NCHW or NHWC) →
+  golden-ratio palette overlay;
+- **super-resolution** → render the upscaled RGB tensor.
+
+The tensor↔float math (`TensorIo`, `ImageOps`, `InputGeometry`) is pure and
+unit-tested; only the Bitmap glue (`BitmapOps`) touches `android.graphics`.
+Camera uses `TakePicturePreview` (system camera, no CAMERA permission); gallery
+and model-import use SAF `GetContent` (no storage permission).
+
 ## 6. Tokenizers
 
 `ClipTokenizer` is a full byte-level BPE encoder (GPT-2 byte↔unicode table,

@@ -4,163 +4,180 @@ import android.content.Context
 import java.io.File
 
 /**
- * Models are NOT shipped inside the APK — they are too large (~1.5 GB for SD 1.5).
- * Instead, the user runs `scripts/fetch-models.py` on their PC to download
- * pre-compiled QNN context binaries from Qualcomm AI Hub, then `adb push`es
- * them to /sdcard/Android/data/io.melan.npulab/files/models/ on the device.
- *
- * This catalog lists every model the app knows about, and ModelStore checks
- * which ones are actually present on the device.
+ * Models are NOT shipped inside the APK — too large (~680 MB for SD 1.5).
+ * They are downloaded on-device from the Models tab, or pushed manually into
+ * Android/data/io.melan.npulab/files/models/. This catalog lists everything
+ * the app knows about; [ModelStore] checks what is actually present.
  */
 enum class ModelKind {
-    STABLE_DIFFUSION_1_5,   // text→image, multi-stage pipeline
-    SD_TURBO,               // 1-4 step fast variant
-    WHISPER_TINY,           // speech recognition, 39M — fastest
-    WHISPER_BASE,           // speech recognition, 74M
-    WHISPER_SMALL,          // speech recognition, 244M — better RU/UK quality
-    WHISPER_LARGE_V3_TURBO, // speech recognition, 809M — best quality, v3 vocab
+    STABLE_DIFFUSION_1_5,
+    SD_TURBO,
+    WHISPER_TINY,
+    WHISPER_BASE,
+    WHISPER_SMALL,
+    WHISPER_LARGE_V3_TURBO,
     ZOO,                    // model-zoo entry: float DLC, runs on HTP/GPU/CPU
-    CUSTOM,                 // user-compiled context binary from models/custom/
+    CUSTOM,                 // user-supplied model from models/custom/
+}
+
+/** What a model does — drives which screen/pipeline can run it. */
+enum class ModelCategory {
+    TEXT_TO_IMAGE,
+    SPEECH,
+    CLASSIFICATION,
+    DETECTION,
+    POSE,
+    DEPTH,
+    SEGMENTATION,
+    SUPER_RESOLUTION,
+    INPAINTING,
+    OTHER,
 }
 
 data class ModelAsset(
+    /** Stable unique id — used as map/list key. NOT [kind] (zoo shares ZOO). */
+    val id: String,
     val kind: ModelKind,
+    val category: ModelCategory,
     val displayName: String,
     val description: String,
     /** File names expected inside the models directory, relative to root. */
     val expectedFiles: List<String>,
     /** Approximate inference cost per single forward pass, for scheduling. */
     val approxMs: Int,
-    /** Source for in-app install, or null if only available via PC compile pipeline. */
+    /** Source for in-app install, or null if only available via PC pipeline. */
     val installSource: InstallSource? = null,
-)
+) {
+    /** The primary model file (.bin or .dlc) used by Benchmark/Vision. */
+    val primaryModelFile: String?
+        get() = expectedFiles.firstOrNull { it.endsWith(".bin") || it.endsWith(".dlc") }
+
+    val isDlc: Boolean get() = primaryModelFile?.endsWith(".dlc") == true
+}
 
 /**
- * Where the app pulls the .bin files from when the user taps Install in the
- * Catalog screen. We currently support a single download case: a zip on the
- * public Qualcomm S3 mirror with extractMap mapping zip entries → on-device
- * relative paths (under getExternalFilesDir/models/).
+ * Download recipe for the Models tab: a zip on the public Qualcomm S3 mirror
+ * (extractMap maps zip-member suffix → on-device relative path) plus optional
+ * one-by-one aux files (HF tokenizers etc.).
  */
 data class InstallSource(
-    /** Direct zip URL on Qualcomm public S3 bucket. */
     val zipUrl: String,
-    /** Map: zip member filename suffix → on-device destination relative path. */
     val extractMap: Map<String, String>,
-    /** Optional extra files to fetch one-by-one (e.g. HF tokenizer json/txt). */
     val auxFiles: List<AuxFile> = emptyList(),
-    /** Estimated total download size in MiB, for UI hint before fetch. */
     val approxMib: Int,
 )
 
 data class AuxFile(val url: String, val destRelative: String)
 
 object ModelCatalog {
-    private const val SD15_ZIP = "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/" +
-        "qai-hub-models/models/stable_diffusion_v1_5/releases/v0.54.0/" +
-        "stable_diffusion_v1_5-qnn_context_binary-w8a16-qualcomm_snapdragon_8_elite_gen5.zip"
-    private const val WHISPER_ZIP = "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/" +
-        "qai-hub-models/models/whisper_base/releases/v0.54.0/" +
-        "whisper_base-qnn_context_binary-float-qualcomm_snapdragon_8_elite_gen5.zip"
-    private const val WHISPER_TINY_ZIP = "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/" +
-        "qai-hub-models/models/whisper_tiny/releases/v0.54.0/" +
-        "whisper_tiny-qnn_context_binary-float-qualcomm_snapdragon_8_elite_gen5.zip"
-    private const val WHISPER_SMALL_ZIP = "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/" +
-        "qai-hub-models/models/whisper_small/releases/v0.54.0/" +
-        "whisper_small-qnn_context_binary-float-qualcomm_snapdragon_8_elite_gen5.zip"
-    private const val WHISPER_TURBO_ZIP = "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/" +
-        "qai-hub-models/models/whisper_large_v3_turbo/releases/v0.54.0/" +
-        "whisper_large_v3_turbo-qnn_context_binary-float-qualcomm_snapdragon_8_elite_gen5.zip"
+    private const val S3 = "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models"
+    private const val REL = "v0.54.0"
     private const val HF_CLIP = "https://huggingface.co/openai/clip-vit-large-patch14/resolve/main"
 
-    /**
-     * Model zoo: device-agnostic float DLCs from the public S3 mirror. One
-     * file per model, composed on-device for whichever backend you pick —
-     * these are the entries that make the GPU/CPU benchmark buttons real.
-     * Availability verified against the v0.54.0 release bucket.
-     */
+    private fun ctxBin(model: String, quant: String) =
+        "$S3/$model/releases/$REL/$model-qnn_context_binary-$quant-qualcomm_snapdragon_8_elite_gen5.zip"
+
+    private fun whisper(
+        id: String, kind: ModelKind, dir: String, name: String, desc: String,
+        hf: String, mib: Int, ms: Int,
+    ) = ModelAsset(
+        id = id, kind = kind, category = ModelCategory.SPEECH,
+        displayName = name, description = desc,
+        expectedFiles = listOf("$dir/encoder.bin", "$dir/decoder.bin", "$dir/tokenizer/vocab.json"),
+        approxMs = ms,
+        installSource = InstallSource(
+            zipUrl = ctxBin(id, "float"),
+            extractMap = mapOf("encoder.bin" to "$dir/encoder.bin", "decoder.bin" to "$dir/decoder.bin"),
+            auxFiles = listOf(AuxFile("$hf/resolve/main/vocab.json", "$dir/tokenizer/vocab.json")),
+            approxMib = mib,
+        ),
+    )
+
+    /* ---------------------------- zoo (float DLCs) ---------------------------- */
+
     private data class Zoo(
-        val id: String,
-        val name: String,
-        val task: String,
-        val mib: Int,
-        val ms: Int,
+        val id: String, val name: String, val task: String,
+        val category: ModelCategory, val mib: Int, val ms: Int,
         /** dlc file names inside the zip; default = single "<id>.dlc". */
         val members: List<String> = emptyList(),
+        /** true for ImageNet classifiers — pull labels.txt for the Vision tab. */
+        val labels: Boolean = false,
     )
 
     private val zooEntries = listOf(
-        Zoo("mobilenet_v2", "MobileNet-V2", "ImageNet classification", 12, 4),
-        Zoo("mobilenet_v3_large", "MobileNet-V3 Large", "ImageNet classification", 21, 4),
-        Zoo("squeezenet1_1", "SqueezeNet 1.1", "ImageNet classification", 4, 3),
-        Zoo("shufflenet_v2", "ShuffleNet-V2", "ImageNet classification", 4, 3),
-        Zoo("mnasnet05", "MnasNet-0.5", "ImageNet classification", 7, 3),
-        Zoo("efficientnet_b0", "EfficientNet-B0", "ImageNet classification", 18, 5),
-        Zoo("googlenet", "GoogLeNet", "ImageNet classification", 23, 5),
-        Zoo("resnet18", "ResNet-18", "ImageNet classification", 41, 6),
-        Zoo("resnet50", "ResNet-50", "ImageNet classification", 90, 9),
-        Zoo("inception_v3", "Inception-V3", "ImageNet classification", 84, 10),
-        Zoo("convnext_tiny", "ConvNeXt-Tiny", "ImageNet classification", 101, 15),
-        Zoo("swin_tiny", "Swin-Tiny", "ImageNet classification (transformer)", 100, 20),
-        Zoo("face_det_lite", "FaceDetLite", "Face detection", 3, 3),
-        Zoo("foot_track_net", "FootTrackNet", "Person/foot detection", 9, 4),
-        Zoo("posenet_mobilenet", "PoseNet", "Pose estimation", 11, 5),
-        Zoo("litehrnet", "LiteHRNet", "Pose estimation", 4, 6),
-        Zoo("mediapipe_face", "MediaPipe Face", "Face detection + landmarks", 3, 3,
+        Zoo("mobilenet_v2", "MobileNet-V2", "ImageNet classification", ModelCategory.CLASSIFICATION, 12, 4, labels = true),
+        Zoo("mobilenet_v3_large", "MobileNet-V3 Large", "ImageNet classification", ModelCategory.CLASSIFICATION, 21, 4, labels = true),
+        Zoo("squeezenet1_1", "SqueezeNet 1.1", "ImageNet classification", ModelCategory.CLASSIFICATION, 4, 3, labels = true),
+        Zoo("shufflenet_v2", "ShuffleNet-V2", "ImageNet classification", ModelCategory.CLASSIFICATION, 4, 3, labels = true),
+        Zoo("mnasnet05", "MnasNet-0.5", "ImageNet classification", ModelCategory.CLASSIFICATION, 7, 3, labels = true),
+        Zoo("efficientnet_b0", "EfficientNet-B0", "ImageNet classification", ModelCategory.CLASSIFICATION, 18, 5, labels = true),
+        Zoo("googlenet", "GoogLeNet", "ImageNet classification", ModelCategory.CLASSIFICATION, 23, 5, labels = true),
+        Zoo("resnet18", "ResNet-18", "ImageNet classification", ModelCategory.CLASSIFICATION, 41, 6, labels = true),
+        Zoo("resnet50", "ResNet-50", "ImageNet classification", ModelCategory.CLASSIFICATION, 90, 9, labels = true),
+        Zoo("inception_v3", "Inception-V3", "ImageNet classification", ModelCategory.CLASSIFICATION, 84, 10, labels = true),
+        Zoo("convnext_tiny", "ConvNeXt-Tiny", "ImageNet classification", ModelCategory.CLASSIFICATION, 101, 15, labels = true),
+        Zoo("swin_tiny", "Swin-Tiny", "ImageNet classification (transformer)", ModelCategory.CLASSIFICATION, 100, 20, labels = true),
+        Zoo("midas", "MiDaS", "Monocular depth", ModelCategory.DEPTH, 58, 15),
+        Zoo("depth_anything_v2", "Depth Anything V2", "Monocular depth", ModelCategory.DEPTH, 87, 30),
+        Zoo("deeplabv3_plus_mobilenet", "DeepLabV3+", "Semantic segmentation", ModelCategory.SEGMENTATION, 20, 12),
+        Zoo("ffnet_40s", "FFNet-40S", "Semantic segmentation (Cityscapes)", ModelCategory.SEGMENTATION, 49, 15),
+        Zoo("unet_segmentation", "U-Net", "Segmentation", ModelCategory.SEGMENTATION, 109, 30),
+        Zoo("fastsam_s", "FastSAM-S", "Segment anything", ModelCategory.SEGMENTATION, 41, 25),
+        Zoo("sesr_m5", "SESR-M5", "Super-resolution ×4", ModelCategory.SUPER_RESOLUTION, 1, 4),
+        Zoo("xlsr", "XLSR", "Super-resolution ×4", ModelCategory.SUPER_RESOLUTION, 1, 4),
+        Zoo("quicksrnetlarge", "QuickSRNet Large", "Super-resolution ×4", ModelCategory.SUPER_RESOLUTION, 1, 5),
+        Zoo("real_esrgan_general_x4v3", "Real-ESRGAN general x4v3", "Super-resolution ×4", ModelCategory.SUPER_RESOLUTION, 4, 12),
+        Zoo("real_esrgan_x4plus", "Real-ESRGAN x4plus", "Super-resolution ×4", ModelCategory.SUPER_RESOLUTION, 59, 70),
+        Zoo("esrgan", "ESRGAN", "Super-resolution ×4", ModelCategory.SUPER_RESOLUTION, 59, 70),
+        Zoo("aotgan", "AOT-GAN", "Image inpainting", ModelCategory.INPAINTING, 53, 45),
+        Zoo("face_det_lite", "FaceDetLite", "Face detection", ModelCategory.DETECTION, 3, 3),
+        Zoo("foot_track_net", "FootTrackNet", "Person/foot detection", ModelCategory.DETECTION, 9, 4),
+        Zoo("posenet_mobilenet", "PoseNet", "Pose estimation", ModelCategory.POSE, 11, 5),
+        Zoo("litehrnet", "LiteHRNet", "Pose estimation", ModelCategory.POSE, 4, 6),
+        Zoo("mediapipe_face", "MediaPipe Face", "Face detection + landmarks", ModelCategory.DETECTION, 3, 3,
             members = listOf("face_detector.dlc", "face_landmark_detector.dlc")),
-        Zoo("mediapipe_hand", "MediaPipe Hand", "Hand detection + landmarks", 10, 4,
+        Zoo("mediapipe_hand", "MediaPipe Hand", "Hand detection + landmarks", ModelCategory.DETECTION, 10, 4,
             members = listOf("hand_detector.dlc", "hand_landmark_detector.dlc")),
-        Zoo("midas", "MiDaS", "Monocular depth", 58, 15),
-        Zoo("depth_anything_v2", "Depth Anything V2", "Monocular depth", 87, 30),
-        Zoo("deeplabv3_plus_mobilenet", "DeepLabV3+", "Semantic segmentation", 20, 12),
-        Zoo("ffnet_40s", "FFNet-40S", "Semantic segmentation (Cityscapes)", 49, 15),
-        Zoo("fastsam_s", "FastSAM-S", "Segment anything", 41, 25),
-        Zoo("unet_segmentation", "U-Net", "Segmentation", 109, 30),
-        Zoo("sesr_m5", "SESR-M5", "Super-resolution ×4", 1, 4),
-        Zoo("xlsr", "XLSR", "Super-resolution ×4", 1, 4),
-        Zoo("quicksrnetlarge", "QuickSRNet Large", "Super-resolution ×4", 1, 5),
-        Zoo("real_esrgan_general_x4v3", "Real-ESRGAN general x4v3", "Super-resolution ×4", 4, 12),
-        Zoo("real_esrgan_x4plus", "Real-ESRGAN x4plus", "Super-resolution ×4", 59, 70),
-        Zoo("esrgan", "ESRGAN", "Super-resolution ×4", 59, 70),
-        Zoo("aotgan", "AOT-GAN", "Image inpainting", 53, 45),
     )
 
     private val zoo: List<ModelAsset> = zooEntries.map { e ->
         val members = e.members.ifEmpty { listOf("${e.id}.dlc") }
+        val extract = members.associateWith { "zoo/$it" }.toMutableMap()
+        // ImageNet classifiers ship labels.txt — pull it once (all are 1000-class).
+        if (e.labels) extract["labels.txt"] = "zoo/${e.id}.labels.txt"
         ModelAsset(
+            id = "zoo_${e.id}",
             kind = ModelKind.ZOO,
+            category = e.category,
             displayName = e.name,
-            description = "${e.task} · float DLC · runs on HTP / GPU / CPU",
+            description = "${e.task} · float DLC · HTP / GPU / CPU",
             expectedFiles = members.map { "zoo/$it" },
             approxMs = e.ms,
             installSource = InstallSource(
-                zipUrl = "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/" +
-                    "qai-hub-models/models/${e.id}/releases/v0.54.0/${e.id}-qnn_dlc-float.zip",
-                extractMap = members.associateWith { "zoo/$it" },
+                zipUrl = "$S3/${e.id}/releases/$REL/${e.id}-qnn_dlc-float.zip",
+                extractMap = extract,
                 approxMib = e.mib,
             ),
         )
     }
 
+    /* ---------------------------- catalog ---------------------------- */
 
     val all: List<ModelAsset> = listOf(
         ModelAsset(
+            id = "stable_diffusion_1_5",
             kind = ModelKind.STABLE_DIFFUSION_1_5,
+            category = ModelCategory.TEXT_TO_IMAGE,
             displayName = "Stable Diffusion 1.5",
-            description = "512×512 text→image, ~20 DPM++ steps, 3-model chain. Generate tab.",
+            description = "512×512 text→image, ~20 steps, 3-model chain. Generate tab.",
             expectedFiles = listOf(
-                "sd15/text_encoder.bin",
-                "sd15/unet.bin",
-                "sd15/vae_decoder.bin",
-                "sd15/tokenizer/vocab.json",
-                "sd15/tokenizer/merges.txt",
+                "sd15/text_encoder.bin", "sd15/unet.bin", "sd15/vae_decoder.bin",
+                "sd15/tokenizer/vocab.json", "sd15/tokenizer/merges.txt",
             ),
             approxMs = 12_000,
             installSource = InstallSource(
-                zipUrl = SD15_ZIP,
-                // Zip member names verified against the real v0.54.0 archive:
-                // text_encoder.bin / unet.bin / vae.bin (NOT vae_decoder.bin!)
-                // + metadata.json which we skip. Extra key kept in case a
-                // future release renames vae.bin back.
+                zipUrl = ctxBin("stable_diffusion_v1_5", "w8a16"),
+                // Real v0.54.0 members: text_encoder.bin / unet.bin / vae.bin.
                 extractMap = mapOf(
                     "text_encoder.bin" to "sd15/text_encoder.bin",
                     "unet.bin" to "sd15/unet.bin",
@@ -174,123 +191,22 @@ object ModelCatalog {
                 approxMib = 680,
             ),
         ),
-        ModelAsset(
-            kind = ModelKind.SD_TURBO,
-            displayName = "SD Turbo",
-            description = "Distilled 1–4 step variant, ~3 s per image.",
-            expectedFiles = listOf(
-                "sd_turbo/text_encoder.bin",
-                "sd_turbo/unet.bin",
-                "sd_turbo/vae_decoder.bin",
-                "sd_turbo/tokenizer/vocab.json",
-                "sd_turbo/tokenizer/merges.txt",
-            ),
-            approxMs = 3_000,
-            installSource = null,  // not on public S3 yet — needs AI Hub compile
-        ),
-        ModelAsset(
-            kind = ModelKind.WHISPER_BASE,
-            displayName = "Whisper Base",
-            description = "Speech recognition, 74M params. Fastest; fair quality. Speech tab.",
-            expectedFiles = listOf(
-                "whisper/encoder.bin",
-                "whisper/decoder.bin",
-                "whisper/tokenizer/vocab.json",
-            ),
-            approxMs = 1_500,
-            installSource = InstallSource(
-                zipUrl = WHISPER_ZIP,
-                extractMap = mapOf(
-                    "encoder.bin" to "whisper/encoder.bin",
-                    "decoder.bin" to "whisper/decoder.bin",
-                ),
-                auxFiles = listOf(
-                    AuxFile(
-                        "https://huggingface.co/openai/whisper-base/resolve/main/vocab.json",
-                        "whisper/tokenizer/vocab.json",
-                    ),
-                ),
-                approxMib = 175,
-            ),
-        ),
-        ModelAsset(
-            kind = ModelKind.WHISPER_SMALL,
-            displayName = "Whisper Small",
-            description = "Speech recognition, 244M params. Much better RU/UK quality. Speech tab.",
-            expectedFiles = listOf(
-                "whisper_small/encoder.bin",
-                "whisper_small/decoder.bin",
-                "whisper_small/tokenizer/vocab.json",
-            ),
-            approxMs = 4_000,
-            installSource = InstallSource(
-                zipUrl = WHISPER_SMALL_ZIP,
-                extractMap = mapOf(
-                    "encoder.bin" to "whisper_small/encoder.bin",
-                    "decoder.bin" to "whisper_small/decoder.bin",
-                ),
-                auxFiles = listOf(
-                    AuxFile(
-                        "https://huggingface.co/openai/whisper-small/resolve/main/vocab.json",
-                        "whisper_small/tokenizer/vocab.json",
-                    ),
-                ),
-                approxMib = 546,
-            ),
-        ),
-        ModelAsset(
-            kind = ModelKind.WHISPER_LARGE_V3_TURBO,
-            displayName = "Whisper Large-v3 Turbo",
-            description = "Speech recognition, 809M params, 128-mel. Best quality; ~1.9 GB. Speech tab.",
-            expectedFiles = listOf(
-                "whisper_large_v3_turbo/encoder.bin",
-                "whisper_large_v3_turbo/decoder.bin",
-                "whisper_large_v3_turbo/tokenizer/vocab.json",
-            ),
-            approxMs = 12_000,
-            installSource = InstallSource(
-                zipUrl = WHISPER_TURBO_ZIP,
-                extractMap = mapOf(
-                    "encoder.bin" to "whisper_large_v3_turbo/encoder.bin",
-                    "decoder.bin" to "whisper_large_v3_turbo/decoder.bin",
-                ),
-                auxFiles = listOf(
-                    AuxFile(
-                        "https://huggingface.co/openai/whisper-large-v3-turbo/resolve/main/vocab.json",
-                        "whisper_large_v3_turbo/tokenizer/vocab.json",
-                    ),
-                ),
-                approxMib = 1923,
-            ),
-        ),
-        ModelAsset(
-            kind = ModelKind.WHISPER_TINY,
-            displayName = "Whisper Tiny",
-            description = "Speech recognition, 39M params. Fastest, lowest quality. Speech tab.",
-            expectedFiles = listOf(
-                "whisper_tiny/encoder.bin",
-                "whisper_tiny/decoder.bin",
-                "whisper_tiny/tokenizer/vocab.json",
-            ),
-            approxMs = 800,
-            installSource = InstallSource(
-                zipUrl = WHISPER_TINY_ZIP,
-                extractMap = mapOf(
-                    "encoder.bin" to "whisper_tiny/encoder.bin",
-                    "decoder.bin" to "whisper_tiny/decoder.bin",
-                ),
-                auxFiles = listOf(
-                    AuxFile(
-                        "https://huggingface.co/openai/whisper-tiny/resolve/main/vocab.json",
-                        "whisper_tiny/tokenizer/vocab.json",
-                    ),
-                ),
-                approxMib = 101,
-            ),
-        ),
+        whisper("whisper_tiny", ModelKind.WHISPER_TINY, "whisper_tiny", "Whisper Tiny",
+            "Speech recognition, 39M. Fastest. Speech tab.",
+            "https://huggingface.co/openai/whisper-tiny", 101, 800),
+        whisper("whisper_base", ModelKind.WHISPER_BASE, "whisper", "Whisper Base",
+            "Speech recognition, 74M. Fast, fair quality. Speech tab.",
+            "https://huggingface.co/openai/whisper-base", 175, 1_500),
+        whisper("whisper_small", ModelKind.WHISPER_SMALL, "whisper_small", "Whisper Small",
+            "Speech recognition, 244M. Much better RU/UK. Speech tab.",
+            "https://huggingface.co/openai/whisper-small", 546, 4_000),
+        whisper("whisper_large_v3_turbo", ModelKind.WHISPER_LARGE_V3_TURBO, "whisper_large_v3_turbo",
+            "Whisper Large-v3 Turbo", "Speech recognition, 809M, 128-mel. Best quality, ~1.9 GB. Speech tab.",
+            "https://huggingface.co/openai/whisper-large-v3-turbo", 1923, 12_000),
     ) + zoo
 
     fun byKind(kind: ModelKind): ModelAsset = all.first { it.kind == kind }
+    fun byId(id: String): ModelAsset? = all.firstOrNull { it.id == id }
 }
 
 class ModelStore(private val ctx: Context) {
@@ -301,17 +217,14 @@ class ModelStore(private val ctx: Context) {
     fun isInstalled(asset: ModelAsset): Boolean =
         asset.expectedFiles.all { pathOf(it).exists() }
 
-    fun installedKinds(): Set<ModelKind> =
-        ModelCatalog.all.filter { isInstalled(it) }.map { it.kind }.toSet()
+    /** Ids of installed catalog assets — stable per-asset, NOT per-kind. */
+    fun installedIds(): Set<String> =
+        ModelCatalog.all.filter { isInstalled(it) }.map { it.id }.toSet()
 
     fun missingFilesFor(asset: ModelAsset): List<String> =
         asset.expectedFiles.filterNot { pathOf(it).exists() }
 
-    /**
-     * User-compiled context binaries dropped into models/custom/ (via
-     * scripts/compile-model.py + adb push, or any other way). Each .bin
-     * becomes a benchmarkable [ModelAsset] — no catalog entry needed.
-     */
+    /** User-supplied models dropped into models/custom/ (storage import or push). */
     fun customAssets(): List<ModelAsset> = scanCustomBins(File(root, "custom"))
 }
 
@@ -322,13 +235,14 @@ internal fun scanCustomBins(customDir: File): List<ModelAsset> =
     }
         ?.sortedBy { it.name.lowercase() }
         ?.map { f ->
+            val dlc = f.name.endsWith(".dlc")
             ModelAsset(
+                id = "custom_${f.name}",
                 kind = ModelKind.CUSTOM,
+                category = ModelCategory.OTHER,
                 displayName = f.name.removeSuffix(".bin").removeSuffix(".dlc"),
-                description = if (f.name.endsWith(".dlc"))
-                    "Custom DLC from models/custom/ (runs on HTP/GPU/CPU)"
-                else
-                    "Custom context binary from models/custom/ (HTP only)",
+                description = if (dlc) "Custom DLC from models/custom/ (HTP/GPU/CPU)"
+                else "Custom context binary from models/custom/ (HTP only)",
                 expectedFiles = listOf("custom/${f.name}"),
                 approxMs = 100,
             )

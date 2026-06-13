@@ -6,13 +6,16 @@ import kotlin.test.assertTrue
 class ModelCatalogTest {
 
     @Test
-    fun `every extractMap destination is an expected file`() {
+    fun `every extractMap model destination is an expected file`() {
         for (asset in ModelCatalog.all) {
             val source = asset.installSource ?: continue
             for ((suffix, dest) in source.extractMap) {
+                // labels.txt etc. are optional extras (not required to load the
+                // model) and intentionally live outside expectedFiles.
+                if (!dest.endsWith(".bin") && !dest.endsWith(".dlc")) continue
                 assertTrue(
                     dest in asset.expectedFiles,
-                    "${asset.kind}: extractMap '$suffix' → '$dest' not in expectedFiles",
+                    "${asset.id}: extractMap '$suffix' → '$dest' not in expectedFiles",
                 )
             }
         }

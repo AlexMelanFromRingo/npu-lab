@@ -33,6 +33,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -48,7 +49,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.melan.npulab.benchmark.BenchmarkRow
+import io.melan.npulab.inference.ModelAsset
 import io.melan.npulab.inference.ModelCatalog
+import io.melan.npulab.inference.ModelCategory
 import io.melan.npulab.inference.ModelStore
 import io.melan.npulab.inference.NpuLabNative
 import io.melan.npulab.ui.components.SectionTitle
@@ -62,20 +65,20 @@ fun BenchmarkScreen(vm: BenchmarkViewModel = viewModel()) {
     val ui by vm.state.collectAsStateWithLifecycle()
     val ctx = LocalContext.current
 
-    // Catalog models + user-compiled .bin files from models/custom/.
+    // Catalog models + custom models discovered in models/custom/.
     val allModels by produceState(initialValue = ModelCatalog.all) {
         value = withContext(Dispatchers.IO) {
             ModelCatalog.all + ModelStore(ctx).customAssets()
         }
     }
-    val selectedModels = remember {
-        mutableStateListOf<String>().apply { addAll(ModelCatalog.all.map { it.displayName }) }
-    }
+    // Nothing selected by default — pick only what you want to run.
+    val selectedIds = remember { mutableStateListOf<String>() }
     val selectedBackends = remember {
-        mutableStateListOf<NpuLabNative.Backend>().apply {
-            addAll(listOf(NpuLabNative.Backend.HTP, NpuLabNative.Backend.GPU, NpuLabNative.Backend.CPU))
-        }
+        mutableStateListOf<NpuLabNative.Backend>().apply { add(NpuLabNative.Backend.HTP) }
     }
+
+    val grouped = remember(allModels) { allModels.groupBy { it.category } }
+    val orderedCats = remember(grouped) { CAT_ORDER.filter { grouped.containsKey(it) } }
 
     Column(
         modifier = Modifier
@@ -92,22 +95,48 @@ fun BenchmarkScreen(vm: BenchmarkViewModel = viewModel()) {
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            item { VSpace(4); SectionTitle("Models") }
             item {
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    allModels.forEach { asset ->
-                        val isOn = asset.displayName in selectedModels
-                        FilterChip(
-                            selected = isOn,
-                            onClick = {
-                                if (isOn) selectedModels.remove(asset.displayName)
-                                else selectedModels.add(asset.displayName)
-                            },
-                            label = { Text(asset.displayName) },
-                        )
+                VSpace(4)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Models", style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(1f))
+                    Text("${selectedIds.size} selected",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.width(8.dp))
+                    TextButton(onClick = {
+                        selectedIds.clear()
+                        selectedIds.addAll(allModels.map { it.id })
+                    }) { Text("All") }
+                    TextButton(onClick = { selectedIds.clear() }) { Text("Clear") }
+                }
+            }
+            for (cat in orderedCats) {
+                val assets = grouped[cat] ?: continue
+                item(key = "hdr_$cat") {
+                    Text(
+                        catLabel(cat),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
+                item(key = "row_$cat") {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        assets.forEach { asset ->
+                            val isOn = asset.id in selectedIds
+                            FilterChip(
+                                selected = isOn,
+                                onClick = {
+                                    if (isOn) selectedIds.remove(asset.id)
+                                    else selectedIds.add(asset.id)
+                                },
+                                label = { Text(asset.displayName) },
+                            )
+                        }
                     }
                 }
             }
@@ -129,14 +158,19 @@ fun BenchmarkScreen(vm: BenchmarkViewModel = viewModel()) {
                         )
                     }
                 }
+                Text(
+                    "GPU / CPU only run DLC models (the zoo). HTP context binaries " +
+                        "(SD, Whisper) are HTP-only and skip cleanly on other backends.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
             }
             item {
                 if (ui.running) {
                     Button(
                         onClick = { vm.cancel() },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(56.dp),
+                        modifier = Modifier.fillMaxWidth().height(56.dp),
                         shape = RoundedCornerShape(20.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.errorContainer,
@@ -151,14 +185,12 @@ fun BenchmarkScreen(vm: BenchmarkViewModel = viewModel()) {
                 } else {
                     Button(
                         onClick = {
-                            val models = allModels.filter { it.displayName in selectedModels }
+                            val models = allModels.filter { it.id in selectedIds }
                             vm.run(models, selectedBackends.toList())
                         },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(56.dp),
+                        modifier = Modifier.fillMaxWidth().height(56.dp),
                         shape = RoundedCornerShape(20.dp),
-                        enabled = selectedModels.isNotEmpty() && selectedBackends.isNotEmpty(),
+                        enabled = selectedIds.isNotEmpty() && selectedBackends.isNotEmpty(),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.secondary,
                             contentColor = MaterialTheme.colorScheme.onSecondary,
@@ -171,11 +203,7 @@ fun BenchmarkScreen(vm: BenchmarkViewModel = viewModel()) {
                 }
             }
             if (ui.running) {
-                item {
-                    LinearProgressIndicator(
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
+                item { LinearProgressIndicator(modifier = Modifier.fillMaxWidth()) }
             }
             ui.error?.let {
                 item {
@@ -184,19 +212,40 @@ fun BenchmarkScreen(vm: BenchmarkViewModel = viewModel()) {
                         color = MaterialTheme.colorScheme.errorContainer,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text(it,
-                            modifier = Modifier.padding(16.dp),
+                        Text(it, modifier = Modifier.padding(16.dp),
                             color = MaterialTheme.colorScheme.onErrorContainer)
                     }
                 }
             }
             if (ui.rows.isNotEmpty()) {
                 item { SectionTitle("Results (${ui.rows.size})") }
-                items(ui.rows) { row -> BenchmarkRowCard(row) }
+                items(ui.rows, key = { "${it.modelName}_${it.backend}" }) { row ->
+                    BenchmarkRowCard(row)
+                }
             }
             item { VSpace(16) }
         }
     }
+}
+
+private val CAT_ORDER = listOf(
+    ModelCategory.TEXT_TO_IMAGE, ModelCategory.SPEECH, ModelCategory.CLASSIFICATION,
+    ModelCategory.DETECTION, ModelCategory.POSE, ModelCategory.DEPTH,
+    ModelCategory.SEGMENTATION, ModelCategory.SUPER_RESOLUTION, ModelCategory.INPAINTING,
+    ModelCategory.OTHER,
+)
+
+private fun catLabel(c: ModelCategory): String = when (c) {
+    ModelCategory.TEXT_TO_IMAGE -> "Text → Image"
+    ModelCategory.SPEECH -> "Speech"
+    ModelCategory.CLASSIFICATION -> "Classification"
+    ModelCategory.DETECTION -> "Detection"
+    ModelCategory.POSE -> "Pose"
+    ModelCategory.DEPTH -> "Depth"
+    ModelCategory.SEGMENTATION -> "Segmentation"
+    ModelCategory.SUPER_RESOLUTION -> "Super-resolution"
+    ModelCategory.INPAINTING -> "Inpainting"
+    ModelCategory.OTHER -> "Custom / other"
 }
 
 @Composable
