@@ -129,7 +129,7 @@ Constraints (static shapes, HTP op coverage, SoC binding):
 ## Tests
 
 ```bash
-cd android-app && ./gradlew :app:testDebugUnitTest   # 60 JVM tests
+cd android-app && ./gradlew :app:testDebugUnitTest   # 63 JVM tests
 scripts/run-host-introspect-test.sh                  # C++ vs real binaries
 ```
 
