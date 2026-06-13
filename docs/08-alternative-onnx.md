@@ -113,3 +113,25 @@ fun makeSession(model: ByteArray, target: TargetEP): OrtSession {
 Сейчас же мы остались на чистом QNN, чтобы потрогать «настоящий» SDK и понять, как именно вызывается NPU — это знание не пропадёт даже после миграции на ORT.
 
 → Дальше: [09-troubleshooting.md](09-troubleshooting.md)
+
+## Реализовано в приложении (Studio → ONNX)
+
+Этот путь теперь встроен: вкладка **Studio → ONNX** грузит любой `.onnx` и гоняет
+его на NPU через `onnxruntime-android-qnn` (ORT + QNN EP) — **на устройстве, без ПК**.
+
+- AAR (`com.microsoft.onnxruntime:onnxruntime-android-qnn:1.26.0`) несёт только
+  `libonnxruntime.so` (~7.5 МБ), **без своих QNN-библиотек** — берёт наши 2.46
+  через `backend_path=<nativeLibDir>/libQnnHtp.so`. Поэтому второй QNN-стек не
+  конфликтует с рукописным пайплайном (SD/Whisper/zoo).
+- Бэкенды: HTP (NPU) / GPU / CPU — через `backend_path` (libQnnHtp/Gpu/Cpu.so).
+- `ep.context_enable=1` → ORT кэширует скомпилированный контекст рядом с моделью
+  (первый запуск компилирует на устройстве, дальше быстро).
+- Неподдержанные QNN-операторы автоматически уезжают на CPU (ORT partitioning).
+- Код: `OrtNpuRunner.kt` (Java ORT API: `SessionOptions.addQnn(...)`),
+  `OnnxScreen`/`OnnxViewModel`. Это и есть «компиляция любой модели под NPU,
+  встроенная в APK» — то, чего нельзя сделать через x86-only `qairt-converter`.
+
+**Замечание про SD:** твои SD-компоненты в ONNX (text_encoder/vae из чекпойнта)
+пойдут именно сюда — импортируешь .onnx и запускаешь, без ручного повторения
+конвенций AI Hub. Полный SD-пайплайн (3 модели + sampler + токенайзер) поверх
+ORT — следующий шаг.

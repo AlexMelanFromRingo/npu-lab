@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.AccountTree
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.Visibility
@@ -39,6 +40,7 @@ fun StudioScreen() {
         Triple("Generate", Icons.Outlined.AutoAwesome, "Generate"),
         Triple("Speech", Icons.Outlined.Mic, "Speech"),
         Triple("Vision", Icons.Outlined.Visibility, "Vision"),
+        Triple("ONNX", Icons.Outlined.AccountTree, "ONNX"),
     )
 
     Column(
@@ -75,7 +77,8 @@ fun StudioScreen() {
         when (tab) {
             0 -> GenerateScreen(embedded = true)
             1 -> TranscribeScreen(embedded = true)
-            else -> VisionScreen(embedded = true)
+            2 -> VisionScreen(embedded = true)
+            else -> OnnxScreen(embedded = true)
         }
     }
 }

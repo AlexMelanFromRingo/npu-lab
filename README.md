@@ -40,8 +40,8 @@ Full table: [docs/07-benchmarking.md](docs/07-benchmarking.md).
 ## What's inside
 
 - **`android-app/`** — Kotlin 2.0 + Jetpack Compose + Material 3. Five tabs:
-  **Studio** (Generate / Speech / Vision under one segmented switcher),
-  **Models**, **Benchmark**, **Device**, **Account**.
+  **Studio** (Generate / Speech / Vision / **ONNX** under one segmented
+  switcher), **Models**, **Benchmark**, **Device**, **Account**.
   - **Generate** — Stable Diffusion 1.5 (w8a16): CLIP byte-level BPE tokenizer,
     selectable sampler — EulerDiscrete (the scheduler the AI Hub binaries were
     calibrated against, default) or DPM-Solver++ 2M (verified against
@@ -57,6 +57,11 @@ Full table: [docs/07-benchmarking.md](docs/07-benchmarking.md).
     colored depth maps, segmentation overlays, super-resolution. Input
     geometry (NCHW/NHWC, H/W/C) is read from the model; postprocessing is
     chosen by category.
+  - **ONNX** — import ANY standard `.onnx` and run it on the Hexagon NPU via
+    **ONNX Runtime + the QNN Execution Provider**, on-device, no PC step. A
+    second inference engine next to the hand-built QNN pipeline; the AAR carries
+    no QNN libs and reuses the bundled 2.46 ones. On-device context caching via
+    `ep.context_enable`.
   - **Models** — install from the public S3 mirror (grouped by category) or
     **import your own .bin / .dlc / .zip from the phone** (no adb).
   - **Benchmark** — 36-model catalog (SD, Whisper ×4, and a 30-model zoo of

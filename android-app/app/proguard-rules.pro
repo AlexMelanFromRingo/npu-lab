@@ -28,3 +28,7 @@
 -dontwarn javax.annotation.concurrent.**
 # Tink also has Protobuf-Lite plumbing that reflects into its own message classes:
 -keep class com.google.crypto.tink.proto.** { *; }
+
+# ONNX Runtime Java API (loaded reflectively / via JNI)
+-keep class ai.onnxruntime.** { *; }
+-dontwarn ai.onnxruntime.**

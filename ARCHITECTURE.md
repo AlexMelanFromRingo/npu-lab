@@ -212,6 +212,18 @@ unit-tested; only the Bitmap glue (`BitmapOps`) touches `android.graphics`.
 Camera uses `TakePicturePreview` (system camera, no CAMERA permission); gallery
 and model-import use SAF `GetContent` (no storage permission).
 
+## 5c. ONNX Runtime + QNN EP (the second engine)
+
+`OrtNpuRunner` runs an arbitrary `.onnx` on the NPU via ONNX Runtime's QNN
+Execution Provider — `SessionOptions.addQnn(backend_path=<nativeLibDir>/libQnnHtp.so,
+htp_performance_mode=burst)` + `ep.context_enable=1` for on-device context
+caching. This is a *separate* stack from the hand-built `qnn_runtime.cpp`
+pipeline: the `onnxruntime-android-qnn` AAR bundles only `libonnxruntime.so`
+(no QNN libs), so it reuses the same bundled 2.46 `libQnn*.so` and can't
+conflict. It's the only in-APK way to compile arbitrary ONNX for the NPU on the
+device (the `qairt-converter` ONNX→DLC step is x86-only). Studio → ONNX drives
+it; unsupported ops fall back to ORT CPU automatically.
+
 ## 6. Tokenizers
 
 `ClipTokenizer` is a full byte-level BPE encoder (GPT-2 byte↔unicode table,

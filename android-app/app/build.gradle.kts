@@ -157,6 +157,12 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
 
+    // ONNX Runtime + QNN Execution Provider: runs ANY .onnx on the Hexagon NPU
+    // on-device. The -qnn AAR ships only libonnxruntime.so (~7.5 MB), no QNN
+    // libs — it loads OUR bundled libQnnHtp.so (2.46) via backend_path, so there
+    // is no second QNN stack to conflict with the hand-built pipeline.
+    implementation("com.microsoft.onnxruntime:onnxruntime-android-qnn:1.26.0")
+
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 
