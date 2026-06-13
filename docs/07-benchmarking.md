@@ -64,17 +64,29 @@ python scripts/benchmark-pc.py --iters 8 --warmup 2 > pc-results.jsonl
 
 ## Замеры на реальном S26 Ultra
 
-Первое честное HTP vs GPU vs CPU на одной модели (DLC, on-device compose,
-median по 8 запускам, burst-режим). Замерено в приложении 2026-06-13:
+Честное HTP vs GPU vs CPU на одной DLC-модели (on-device compose, median по 8
+запускам, burst-режим). Замерено в приложении 2026-06-13. Все числа — **median, мс**:
 
-| Модель (224×224)    | HTP (NPU) | GPU (Adreno 840) | CPU (Kryo) | NPU быстрее |
-|---------------------|-----------|------------------|------------|-------------|
-| MobileNet-V2        | **0.80 ms** | 2.69 ms        | 4.08 ms    | ×3.4 / ×5.1 |
-| MobileNet-V3 Large  | **0.88 ms** | 3.46 ms        | 3.37 ms    | ×3.9 / ×3.8 |
+| Модель                | HTP (NPU) | GPU (Adreno 840) | CPU (Kryo) | NPU vs GPU | NPU vs CPU |
+|-----------------------|-----------|------------------|------------|------------|------------|
+| MobileNet-V2          | **0.80**  | 2.65             | 4.12       | ×3.3       | ×5.2       |
+| MobileNet-V3 Large    | **0.87**  | 3.42             | 3.96       | ×3.9       | ×4.6       |
+| ResNet-18             | **1.12**  | 6.73             | 10.94      | ×6.0       | ×9.8       |
+| ResNet-50             | **1.62**  | 15.60            | 25.51      | ×9.6       | ×15.7      |
+| MiDaS (depth)         | **2.00**  | 19.77            | 32.18      | ×9.9       | ×16.1      |
+| PoseNet               | **1.15**  | 10.48            | 14.01      | ×9.1       | ×12.2      |
+| LiteHRNet (pose)      | **1.46**  | сбой rc=1002     | 18.82      | —          | ×12.9      |
+| Whisper Tiny (enc)¹   | **13.51** | HTP-only         | HTP-only   | —          | —          |
 
-Джиттер на HTP мизерный (MobileNet-V2: min 0.78, max 0.85 ms) — power config
-держит частоты. Whisper Base encoder на HTP — median ~24.6 ms на 30 с аудио,
-decode 185–222 tok/s.
+¹ Whisper — context binary (HTP-only), на GPU/CPU не грузится by design.
+
+**Главное наблюдение:** преимущество NPU **растёт с размером модели** — на лёгких
+MobileNet это ×3–5 над GPU, а на ResNet-50 / MiDaS уже **×10 над GPU и ×16 над CPU**.
+Джиттер на HTP мизерный (MobileNet-V2: min 0.78, max 0.85 мс) — power config держит
+частоты. LiteHRNet не скомпилировался на GPU-бэкенде (`rc=1002`, COMMON) — не все
+графы проходят онлайн-компиляцию под Adreno; на HTP и CPU работает.
+
+Whisper Base encoder на HTP — median ~24.6 мс на 30 с аудио, decode 185–222 tok/s.
 
 ## Что ожидать (на других ворклоадах)
 

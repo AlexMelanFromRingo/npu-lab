@@ -32,8 +32,7 @@ object QnnRuntimeLibs {
 
     private const val TAG = "QnnRuntimeLibs"
 
-    /** Hexagon-side libraries that must be visible to the DSP loader. */
-    private val DSP_LIBS = listOf("libQnnHtpV81Skel.so", "libQnnHtpV81.so")
+    private val SKEL_RE = Regex("libQnnHtpV(\\d+)Skel\\.so")
 
     /** The standard ADSP search list appended after nativeLibraryDir. */
     private const val ADSP_FALLBACKS =
@@ -60,26 +59,35 @@ object QnnRuntimeLibs {
         } catch (t: Throwable) {
             Log.e(TAG, "Failed to set DSP/LD env", t)
         }
-        for (missing in missingDspLibs(context)) {
-            Log.e(
-                TAG,
-                "$missing not found in $libDir — NPU will not initialize. " +
-                    "Check that jniLibs/arm64-v8a contains it and that " +
-                    "useLegacyPackaging=true is set."
-            )
+        val arches = bundledArches(context)
+        val want = QnnRuntime.resolveHtpArch()
+        Log.i(TAG, "Bundled HTP arches: ${arches.ifEmpty { listOf("NONE") }}; device wants v$want")
+        if (arches.isEmpty()) {
+            Log.e(TAG, "No libQnnHtpV*Skel.so in $libDir — NPU will not initialize. " +
+                "Run scripts/copy-qnn-libs.sh and check useLegacyPackaging=true.")
+        } else if (want > 0 && want !in arches) {
+            Log.w(TAG, "This device's HTP arch v$want has no bundled skel " +
+                "(bundled: $arches). Rebuild with HTP_ARCHES including v$want.")
         }
     }
 
     /** Absolute path of the dir holding the QNN libs. Passed to native init. */
     fun runtimeDir(context: Context): String = context.applicationInfo.nativeLibraryDir
 
-    /**
-     * DSP-side libs that did NOT get extracted to nativeLibraryDir. Empty list
-     * means the Hexagon loader can find everything. Surfaced on the Device
-     * screen so a broken install is visible without logcat.
-     */
-    fun missingDspLibs(context: Context): List<String> {
+    /** HTP arch numbers whose skel is bundled (e.g. [73, 75, 79, 81]). */
+    fun bundledArches(context: Context): List<Int> {
         val libDir = File(context.applicationInfo.nativeLibraryDir)
-        return DSP_LIBS.filterNot { File(libDir, it).isFile }
+        return libDir.listFiles()?.mapNotNull {
+            SKEL_RE.matchEntire(it.name)?.groupValues?.get(1)?.toIntOrNull()
+        }?.sorted() ?: emptyList()
+    }
+
+    /**
+     * True if this device's HTP architecture has a matching skel bundled.
+     * When false the NPU path will fail and the Device screen can say why.
+     */
+    fun deviceArchSupported(context: Context): Boolean {
+        val want = QnnRuntime.resolveHtpArch()
+        return want > 0 && want in bundledArches(context)
     }
 }

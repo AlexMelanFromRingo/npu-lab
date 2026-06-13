@@ -7,8 +7,13 @@
 #
 #   scripts/copy-qnn-libs.sh [QNN_SDK_ROOT]
 #
-# Includes the Hexagon-side (DSP6 ELF) libraries: they deliberately go into
-# the SAME jniLibs/arm64-v8a folder — see ARCHITECTURE.md §3.
+# Multi-chip: by default it bundles the HTP skels for several recent Snapdragon
+# arches so the APK runs DLC models on more than just the S26 Ultra. Override:
+#
+#   HTP_ARCHES="v81"            scripts/copy-qnn-libs.sh   # S26 Ultra only (lean)
+#   HTP_ARCHES="v73 v75 v79 v81" scripts/copy-qnn-libs.sh  # 8 Gen 2 … Elite Gen 5
+#
+# Each arch costs ~22 MB (DSP6 skel + prepare lib). See ARCHITECTURE.md §3.
 
 set -euo pipefail
 
@@ -21,32 +26,38 @@ if [[ -z "${QNN_SDK_ROOT}" ]]; then
 fi
 if [[ -z "${QNN_SDK_ROOT}" || ! -d "${QNN_SDK_ROOT}/lib/aarch64-android" ]]; then
     echo "ERROR: QNN_SDK_ROOT not found (got: '${QNN_SDK_ROOT}')." >&2
-    echo "       Pass it as \$1, export it, or set qnn.sdk.root in android-app/local.properties." >&2
     exit 2
 fi
 
-HEXAGON_ARCH="${HEXAGON_ARCH:-v81}"   # Snapdragon 8 Elite Gen 5
+HTP_ARCHES="${HTP_ARCHES:-v73 v75 v79 v81}"
 A64="${QNN_SDK_ROOT}/lib/aarch64-android"
-HEX="${QNN_SDK_ROOT}/lib/hexagon-${HEXAGON_ARCH}/unsigned"
 
 mkdir -p "${DEST}"
 
-# Host-side (aarch64) libraries.
-for f in libQnnSystem.so libQnnHtp.so \
-         "libQnnHtp$(tr '[:lower:]' '[:upper:]' <<<"${HEXAGON_ARCH:0:1}")${HEXAGON_ARCH:1}Stub.so" \
-         "libQnnHtp$(tr '[:lower:]' '[:upper:]' <<<"${HEXAGON_ARCH:0:1}")${HEXAGON_ARCH:1}CalculatorStub.so" \
-         libQnnHtpProfilingReader.so libQnnHtpNetRunExtensions.so \
-         libQnnCpu.so libQnnGpu.so; do
+# Host-side (aarch64) backend + system libraries (arch-independent).
+for f in libQnnSystem.so libQnnHtp.so libQnnHtpProfilingReader.so \
+         libQnnHtpNetRunExtensions.so libQnnCpu.so libQnnGpu.so; do
     cp -v "${A64}/${f}" "${DEST}/"
 done
 
-# Optional: online-prepare for DLC models (~90 MB). Comment out to slim the APK.
+# Online-prepare backend for DLC models (~90 MB, arch-independent host lib).
 cp -v "${A64}/libQnnHtpPrepare.so" "${DEST}/" || true
 
-# Hexagon-side (DSP6) libraries — yes, into jniLibs/arm64-v8a (see docs).
-UP="$(tr '[:lower:]' '[:upper:]' <<<"${HEXAGON_ARCH:0:1}")${HEXAGON_ARCH:1}"
-cp -v "${HEX}/libQnnHtp${UP}Skel.so" "${DEST}/"
-cp -v "${HEX}/libQnnHtp${UP}.so" "${DEST}/"
+# Per-arch: aarch64 stubs + Hexagon (DSP6) skel & prepare lib.
+for arch in ${HTP_ARCHES}; do
+    up="$(tr '[:lower:]' '[:upper:]' <<<"${arch:0:1}")${arch:1}"   # v81 → V81
+    hex="${QNN_SDK_ROOT}/lib/hexagon-${arch}/unsigned"
+    if [[ ! -d "${hex}" ]]; then
+        echo "WARN: ${hex} not in SDK — skipping ${arch}" >&2
+        continue
+    fi
+    cp -v "${A64}/libQnnHtp${up}Stub.so" "${DEST}/"
+    cp -v "${A64}/libQnnHtp${up}CalculatorStub.so" "${DEST}/"
+    cp -v "${hex}/libQnnHtp${up}Skel.so" "${DEST}/"
+    cp -v "${hex}/libQnnHtp${up}.so" "${DEST}/"
+    echo "  + arch ${arch}"
+done
 
 echo
-echo "Done. $(ls "${DEST}" | wc -l) libraries in ${DEST}"
+echo "Done. $(ls "${DEST}" | wc -l) libraries, $(du -sh "${DEST}" | cut -f1) in ${DEST}"
+echo "Bundled HTP arches: ${HTP_ARCHES}"

@@ -20,16 +20,22 @@ Built as a hands-on lab to compare a phone NPU against a desktop GPU
 
 ## Measured on a Galaxy S26 Ultra (SM8850, Hexagon V81)
 
-| Workload | Result |
+Three-way HTP vs GPU vs CPU on the **same float DLC** (composed on-device per
+backend), median ms — the NPU's lead widens with model size:
+
+| Model | HTP (NPU) | GPU (Adreno 840) | CPU (Kryo) | NPU vs GPU / CPU |
+|---|---|---|---|---|
+| MobileNet-V2 | **0.80** | 2.65 | 4.12 | ×3.3 / ×5.2 |
+| ResNet-50 | **1.62** | 15.60 | 25.51 | ×9.6 / ×15.7 |
+| MiDaS (depth) | **2.00** | 19.77 | 32.18 | ×9.9 / ×16.1 |
+
+| Speech | Result |
 |---|---|
 | Whisper Base encoder (30 s audio) | **~24.6 ms** median, ±0.8 ms |
 | Whisper Base autoregressive decode | **185–222 tok/s** |
-| Speech-to-text languages | RU / EN / UK / DE verified, 99 supported, auto-detect |
-| MobileNet-V2 (224²) — HTP / GPU / CPU | **0.80** / 2.69 / 4.08 ms — NPU ×3.4 vs GPU, ×5.1 vs CPU |
-| MobileNet-V3 Large — HTP / GPU / CPU | **0.88** / 3.46 / 3.37 ms |
+| Languages | RU / EN / UK / DE verified, 99 supported, auto-detect |
 
-The HTP/GPU/CPU split is a genuine three-way comparison: the same float DLC is
-composed and prepared on-device per backend via `systemDlcComposeGraphs`.
+Full table: [docs/07-benchmarking.md](docs/07-benchmarking.md).
 
 ## What's inside
 
@@ -158,6 +164,10 @@ Documented in detail in [ARCHITECTURE.md](ARCHITECTURE.md) and
   languages incl. auto-detect), benchmarks, custom-model loading.
 - QNN GPU/CPU backends can't deserialize HTP context binaries (by design) —
   use the DLC zoo models for three-way HTP/GPU/CPU benchmarks.
+- **Multi-chip**: the build bundles HTP skels for v73/v75/v79/v81 (Snapdragon
+  8 Gen 2 → 8 Elite Gen 5), so the DLC zoo runs on those NPUs too — QNN
+  auto-selects the arch on device. SD/Whisper context binaries are SM8850-only.
+  Add more arches via `HTP_ARCHES=... scripts/copy-qnn-libs.sh`.
 - Whisper streaming (real-time) and SD img2img are not implemented.
 
 ## Docs in Russian

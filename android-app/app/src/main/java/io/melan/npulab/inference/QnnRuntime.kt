@@ -76,14 +76,18 @@ class QnnRuntime(
             }
         }
 
-        /** HTP arch matching [resolveSocModel]. Defaults to v81 (our target). */
+        /**
+         * HTP arch matching [resolveSocModel]. Returns 0 for unmapped chips —
+         * the native layer then skips the custom device config and lets QNN
+         * auto-detect the real arch and load whichever bundled skel matches.
+         */
         fun resolveHtpArch(): Int = when (resolveSocModel()) {
-            87 -> HTP_ARCH_V81_S8E_GEN5
-            69 -> HTP_ARCH_V79_S8_ELITE
-            57 -> HTP_ARCH_V75_S8_GEN3
-            43 -> HTP_ARCH_V73_S8_GEN2
-            42, 36 -> 69              // 8(+) Gen 1 — Hexagon v69
-            else -> HTP_ARCH_V81_S8E_GEN5
+            87 -> HTP_ARCH_V81_S8E_GEN5  // 8 Elite Gen 5 (SM8850)
+            69 -> HTP_ARCH_V79_S8_ELITE  // 8 Elite (SM8750)
+            57 -> HTP_ARCH_V75_S8_GEN3   // 8 Gen 3 (SM8650)
+            43 -> HTP_ARCH_V73_S8_GEN2   // 8 Gen 2 (SM8550)
+            42, 36 -> 69                 // 8(+) Gen 1 — Hexagon v69
+            else -> 0                    // unknown — QNN auto-detects on device
         }
     }
 }

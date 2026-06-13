@@ -105,6 +105,17 @@ The APK carries, in `jniLibs/arm64-v8a/`:
     `dlopen … not found in namespace clns-N` inside the QNN stub and a
     misleading `rc=14001` at the API surface.
 
+**Multi-chip.** The host `libQnnHtp.so` auto-detects the connected DSP's arch
+and FastRPC-loads the matching `libQnnHtpV<N>Skel.so` — it ignores our SOC/ARCH
+device hint on a real target ("Specified config ARCH, ignoring on real target").
+So supporting older Snapdragons is just a matter of bundling more skels:
+`scripts/copy-qnn-libs.sh` takes `HTP_ARCHES` (default `v73 v75 v79 v81` →
+8 Gen 2 / 8 Gen 3 / 8 Elite / 8 Elite Gen 5), the gradle `keepDebugSymbols` glob
+is `libQnnHtpV*`, and `QnnRuntimeLibs.bundledArches()` reports what's present on
+the Device screen. **DLC zoo models run on any of these chips** (the graph is
+composed on-device for the detected arch); the SD/Whisper **context binaries are
+SM8850-specific** and would need per-chip downloads/recompiles to run elsewhere.
+
 `QnnRuntimeLibs.setup()` (Application.onCreate, **before** any
 `System.loadLibrary`) points `ADSP_LIBRARY_PATH`, `CDSP_LIBRARY_PATH` and
 `DSP_LIBRARY_PATH` at `nativeLibraryDir` plus the stock vendor fallbacks.

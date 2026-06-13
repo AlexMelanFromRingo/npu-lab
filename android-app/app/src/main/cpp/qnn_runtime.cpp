@@ -279,17 +279,17 @@ public:
         os << "\nsocModel=" << soc_model_ << " htpArch=v" << htp_arch_;
         os << "\nlogCreate rc=" << log_create_rc_;
         if (native_lib_dir_ && *native_lib_dir_) {
-            for (const char* skel : {"libQnnHtpV81Skel.so", "libQnnHtpV81.so",
-                                     "libQnnHtpV81Stub.so"}) {
-                std::string p = std::string(native_lib_dir_) + "/" + skel;
-                std::ifstream f(p, std::ios::binary | std::ios::ate);
-                if (f) {
-                    os << "\n" << skel << ": present ("
-                       << static_cast<long long>(f.tellg()) << " B)";
-                } else {
-                    os << "\n" << skel << ": MISSING in " << native_lib_dir_;
-                }
+            // List whatever HTP skels are actually bundled (any arch), so a
+            // wrong-arch build shows up immediately on the Device self-test.
+            os << "\nbundled HTP skels:";
+            bool any = false;
+            for (int v : {66, 68, 69, 73, 75, 79, 81, 83, 85}) {
+                std::string name = "libQnnHtpV" + std::to_string(v) + "Skel.so";
+                std::ifstream f(std::string(native_lib_dir_) + "/" + name,
+                                std::ios::binary | std::ios::ate);
+                if (f) { os << " v" << v; any = true; }
             }
+            if (!any) os << " NONE (NPU cannot initialize)";
         } else {
             os << "\nnative_lib_dir: (not provided)";
         }

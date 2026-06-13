@@ -30,8 +30,8 @@ android {
         applicationId = "io.melan.npulab"
         minSdk = 31
         targetSdk = 35
-        versionCode = 9
-        versionName = "0.8.1"
+        versionCode = 10
+        versionName = "0.9.0"
 
         ndk {
             // S26 Ultra is arm64-v8a. We do not target other ABIs because QNN HTP
@@ -123,12 +123,13 @@ android {
             // chatapp_android build.gradle.
             useLegacyPackaging = true
             pickFirsts += listOf("**/libc++_shared.so")
-            // libQnnHtpV81Skel.so / libQnnHtpV81.so are Hexagon (DSP6) ELFs that
+            // libQnnHtpV*Skel.so / libQnnHtpV*.so are Hexagon (DSP6) ELFs that
             // ride in jniLibs/arm64-v8a next to the aarch64 libs — exactly how
             // Qualcomm's ChatApp ships them. AGP's strip task only understands
             // aarch64, so exclude them from stripping instead of letting it
-            // warn (or worse, mangle them).
-            keepDebugSymbols += listOf("**/libQnnHtpV81Skel.so", "**/libQnnHtpV81.so")
+            // warn (or worse, mangle them). Wildcarded so bundling extra HTP
+            // arches (V73/V75/V79/V81…) for older Snapdragons needs no change.
+            keepDebugSymbols += listOf("**/libQnnHtpV*Skel.so", "**/libQnnHtpV*.so")
         }
     }
 }

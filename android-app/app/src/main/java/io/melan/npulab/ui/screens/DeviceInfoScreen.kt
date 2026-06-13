@@ -122,6 +122,26 @@ fun DeviceInfoScreen() {
                                 color = MaterialTheme.colorScheme.error,
                             )
                         }
+                        Spacer(Modifier.height(8.dp))
+                        val arches = remember { QnnRuntimeLibs.bundledArches(ctx) }
+                        val supported = data.htpArchGuess <= 0 || data.htpArchGuess in arches
+                        Text(
+                            text = "Bundled HTP arches: " +
+                                (arches.joinToString(", ") { "v$it" }.ifEmpty { "none" }),
+                            style = MaterialTheme.typography.labelMedium,
+                            fontFamily = FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            text = if (supported)
+                                "✓ This chip's NPU is supported by this build"
+                            else
+                                "⚠ No skel for v${data.htpArchGuess} — rebuild with " +
+                                    "HTP_ARCHES=v${data.htpArchGuess} (DLC models won't run on NPU)",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = if (supported) MaterialTheme.colorScheme.tertiary
+                            else MaterialTheme.colorScheme.error,
+                        )
                     }
                 }
             }
