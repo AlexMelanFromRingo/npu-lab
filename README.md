@@ -25,6 +25,11 @@ Built as a hands-on lab to compare a phone NPU against a desktop GPU
 | Whisper Base encoder (30 s audio) | **~24.6 ms** median, ±0.8 ms |
 | Whisper Base autoregressive decode | **185–222 tok/s** |
 | Speech-to-text languages | RU / EN / UK / DE verified, 99 supported, auto-detect |
+| MobileNet-V2 (224²) — HTP / GPU / CPU | **0.80** / 2.69 / 4.08 ms — NPU ×3.4 vs GPU, ×5.1 vs CPU |
+| MobileNet-V3 Large — HTP / GPU / CPU | **0.88** / 3.46 / 3.37 ms |
+
+The HTP/GPU/CPU split is a genuine three-way comparison: the same float DLC is
+composed and prepared on-device per backend via `systemDlcComposeGraphs`.
 
 ## What's inside
 
