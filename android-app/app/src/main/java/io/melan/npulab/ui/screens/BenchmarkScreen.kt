@@ -159,8 +159,10 @@ fun BenchmarkScreen(vm: BenchmarkViewModel = viewModel()) {
                     }
                 }
                 Text(
-                    "GPU / CPU only run DLC models (the zoo). HTP context binaries " +
-                        "(SD, Whisper) are HTP-only and skip cleanly on other backends.",
+                    "For a 3-way HTP vs GPU vs CPU comparison you need a DLC model: " +
+                        "install one from the zoo (e.g. MobileNet-V2, 12 MiB) on the " +
+                        "Models tab. SD and Whisper are HTP-only context binaries and " +
+                        "skip cleanly on GPU/CPU.",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 6.dp),
@@ -280,9 +282,16 @@ private fun BenchmarkRowCard(row: BenchmarkRow) {
                 )
             }
             if (row.error != null) {
+                // "skipped …" is an expected, by-design outcome (e.g. a context
+                // binary on GPU/CPU) — show it muted, not as a red error.
+                val skipped = row.error.startsWith("skipped")
                 Spacer(Modifier.height(8.dp))
-                Text(row.error, color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    row.error,
+                    color = if (skipped) MaterialTheme.colorScheme.onSurfaceVariant
+                    else MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
             } else {
                 Spacer(Modifier.height(8.dp))
                 Surface(
